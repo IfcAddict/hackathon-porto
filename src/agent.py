@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Any
 
 from langchain.agents import create_agent
@@ -8,7 +9,19 @@ from langchain_groq import ChatGroq
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from src.config import GROQ_API_KEY, GROQ_MODEL
+from src.config import (
+    GROQ_429_MAX_RETRIES,
+    GROQ_429_MAX_SLEEP_SEC,
+    GROQ_API_KEY,
+    GROQ_MODEL,
+)
+from src.groq_rate_limit import (
+    GroqDailyQuotaExceeded,
+    daily_quota_exhausted,
+    find_429_response,
+    format_daily_quota_message,
+    wait_seconds_before_retry,
+)
 from src.logging_config import console, graph_debug_enabled
 from src.tools import get_tools
 from src.prompts import SYSTEM_PROMPT
@@ -128,6 +141,7 @@ def build_agent():
     llm = ChatGroq(
         model=GROQ_MODEL,
         api_key=GROQ_API_KEY,
+        max_retries=6,
     )
 
     tools = get_tools()
@@ -147,29 +161,62 @@ def run_agent(agent, user_message: str) -> list:
 
     Streams graph state so each new message (assistant, tool calls, tool results)
     is logged to the configured logger as the run progresses.
+
+    On Groq HTTP 429: waits and restarts the full agent turn (same user message) for
+    short-window limits (TPM/RPM). If ``x-ratelimit-remaining-requests`` is 0, raises
+    :class:`GroqDailyQuotaExceeded` (daily RPD exhausted).
     """
     logger.info("Starting agent run (user message: %d chars)", len(user_message))
     inputs = {"messages": [("user", user_message)]}
 
-    last_messages: list = []
-    seen = 0
-
-    # ToolNode uses a thread pool; our IFC ScriptEngine is one shared process. Run tools
-    # one at a time so scripts and revalidate run in model order and never race.
-    for state in agent.stream(
-        inputs,
-        stream_mode="values",
-        config={"max_concurrency": 1},
-    ):
-
-        if not isinstance(state, dict):
+    attempt = 0
+    while True:
+        attempt += 1
+        last_messages: list = []
+        seen = 0
+        try:
+            # ToolNode uses a thread pool; our IFC ScriptEngine is one shared process.
+            for state in agent.stream(
+                inputs,
+                stream_mode="values",
+                config={"max_concurrency": 1},
+            ):
+                if not isinstance(state, dict):
+                    continue
+                msgs = state.get("messages") or []
+                if len(msgs) > seen:
+                    for i in range(seen, len(msgs)):
+                        _log_message(msgs[i])
+                    seen = len(msgs)
+                last_messages = msgs
+        except BaseException as exc:
+            resp = find_429_response(exc)
+            if resp is None:
+                raise
+            if daily_quota_exhausted(resp):
+                raise GroqDailyQuotaExceeded(format_daily_quota_message(resp)) from exc
+            if attempt >= GROQ_429_MAX_RETRIES:
+                raise RuntimeError(
+                    f"Groq rate limit (HTTP 429) persisted after {GROQ_429_MAX_RETRIES} "
+                    "full run retries. Increase GROQ_429_MAX_RETRIES or wait."
+                ) from exc
+            wait_sec = wait_seconds_before_retry(
+                resp,
+                max_sleep=GROQ_429_MAX_SLEEP_SEC,
+            )
+            logger.warning(
+                "Groq rate limited (HTTP 429); waiting %.1f s then restarting agent run "
+                "(attempt %d/%d).",
+                wait_sec,
+                attempt,
+                GROQ_429_MAX_RETRIES,
+            )
+            console.print(
+                f"[yellow]Groq rate limit — waiting {wait_sec:.0f} s, then retrying this run "
+                f"({attempt}/{GROQ_429_MAX_RETRIES})…[/]"
+            )
+            time.sleep(wait_sec)
             continue
-        msgs = state.get("messages") or []
-        if len(msgs) > seen:
-            for i in range(seen, len(msgs)):
-                _log_message(msgs[i])
-            seen = len(msgs)
-        last_messages = msgs
 
-    logger.info("Agent run finished (%d messages in history)", len(last_messages))
-    return last_messages
+        logger.info("Agent run finished (%d messages in history)", len(last_messages))
+        return last_messages

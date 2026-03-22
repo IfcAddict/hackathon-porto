@@ -5,7 +5,9 @@ from langchain_core.tools import tool
 
 from src.engine import ScriptEngine
 from src.ifc_utils import run_ifctester
+from src.issue_summary import summarize_issues_for_agent
 from src.logging_config import console
+from src.prompts import format_issues_for_agent_message
 
 log = logging.getLogger("ifc_agent.tools")
 
@@ -83,17 +85,28 @@ def revalidate_ifc() -> str:
                 "[yellow]Running IDS validation…[/] "
                 "[dim](reloading IFC + checking specs; can take several minutes)[/]"
             )
-            issues = run_ifctester(_ifc_output_path, _ids_path)
-    log.info("revalidate_ifc: IDS validation finished (%d remaining issue(s))", len(issues))
-    if not issues:
+            raw_issues = run_ifctester(_ifc_output_path, _ids_path)
+    summarized, merged_verbose = summarize_issues_for_agent(raw_issues)
+    log.info(
+        "revalidate_ifc: IDS finished — %d raw row(s) → %d agent group(s)",
+        len(raw_issues),
+        len(summarized),
+    )
+    if not summarized:
         return "All specifications pass. No remaining issues."
 
-    lines = [f"Remaining issues ({len(issues)}):"]
-    for i, issue in enumerate(issues, 1):
-        lines.append(f"\n{i}. {issue['title']}")
-        if issue["description"]:
-            lines.append(f"   {issue['description']}")
-    return "\n".join(lines)
+    return format_issues_for_agent_message(
+        summarized,
+        intro_heading=(
+            f"IDS re-validation: **{len(summarized)}** issue group(s) remain "
+            f"(from {len(raw_issues)} raw report row(s)):"
+        ),
+        closing=(
+            "Continue fixing with run_python_script where needed, then call revalidate_ifc again "
+            "to check progress."
+        ),
+        summarized_element_rows=merged_verbose if merged_verbose > 0 else None,
+    )
 
 
 def get_tools() -> list:

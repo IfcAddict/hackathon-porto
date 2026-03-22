@@ -11,6 +11,8 @@ from src.ifc_utils import scan_rsc_dir, run_ifctester, parse_bcf, copy_ifc_to_ou
 from src.engine import ScriptEngine
 from src.tools import init_tools
 from src.agent import build_agent, run_agent
+from src.groq_rate_limit import GroqDailyQuotaExceeded
+from src.issue_summary import summarize_issues_for_agent
 from src.prompts import build_initial_user_message, build_review_feedback_message
 
 
@@ -49,9 +51,18 @@ def display_report(final_message: str):
     print_separator()
 
 
-def review_loop(issues: list[dict], agent, ifc_output_path: str):
+def review_loop(
+    issues: list[dict],
+    agent,
+    ifc_output_path: str,
+    *,
+    summarized_element_rows: int = 0,
+):
     """Run the agent, show results, collect feedback, repeat if needed."""
-    user_message = build_initial_user_message(issues)
+    user_message = build_initial_user_message(
+        issues,
+        summarized_element_rows=summarized_element_rows or None,
+    )
     console.print("\n[bold yellow]Starting agent…[/]\n")
     messages = run_agent(agent, user_message)
 
@@ -123,13 +134,19 @@ def main():
         sys.exit(1)
 
     console.print("\n[bold]Collecting issues…[/]")
-    issues = collect_issues(files, ifc_path)
+    raw_issues = collect_issues(files, ifc_path)
 
-    if not issues:
+    if not raw_issues:
         console.print("\n[green]No issues found[/] — the IFC file passes all validations.")
         sys.exit(0)
 
-    console.print(f"\nFound [bold yellow]{len(issues)}[/] issue(s):")
+    issues, merged_verbose = summarize_issues_for_agent(raw_issues)
+    console.print(
+        f"\n[dim]Raw report rows:[/] [yellow]{len(raw_issues)}[/]  "
+        f"[dim]→ agent / review groups:[/] [green]{len(issues)}[/]"
+        + (f"  [dim](merged {merged_verbose} element-level rows)[/]" if merged_verbose else "")
+    )
+    console.print(f"\n[bold]Issue groups[/] ([cyan]{len(issues)}[/]):")
     for i, issue in enumerate(issues, 1):
         console.print(f"  [cyan]{i}.[/] {escape(issue['title'])}")
 
@@ -142,7 +159,11 @@ def main():
 
     agent = build_agent()
 
-    review_loop(issues, agent, ifc_output_path)
+    try:
+        review_loop(issues, agent, ifc_output_path, summarized_element_rows=merged_verbose)
+    except GroqDailyQuotaExceeded as err:
+        console.print(f"\n[red]{escape(str(err))}[/]")
+        sys.exit(2)
 
     engine.save_model(ifc_output_path)
     console.print(f"\n[green]Final IFC saved to:[/] [cyan]{escape(ifc_output_path)}[/]")

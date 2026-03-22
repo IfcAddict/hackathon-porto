@@ -107,21 +107,47 @@ Structure your final message as a clear, structured report.
 """
 
 
-def build_initial_user_message(issues: list[dict], human_instructions: str | None = None) -> str:
-    """Build the initial user message with the list of issues to fix."""
-    lines = ["Here are the issues found in the IFC file:\n"]
+def format_issues_for_agent_message(
+    issues: list[dict],
+    *,
+    intro_heading: str = "Here are the issues found in the IFC file:",
+    closing: str = (
+        "Please analyze these issues and fix them. Use the run_python_script tool to query "
+        "and modify the IFC model, and use revalidate_ifc to check your progress."
+    ),
+    summarized_element_rows: int | None = None,
+) -> str:
+    """Shared Markdown body for any agent-facing issue list (startup or revalidate_ifc)."""
+    lines: list[str] = []
+    if summarized_element_rows and summarized_element_rows > 0:
+        lines.append(
+            "The checker reported many similar element-level failures; they are **grouped below** by "
+            "IFC type and IDS rule context. Fix in bulk with `model.by_type(...)` — you do not need every GlobalId.\n"
+        )
+    lines.append(f"{intro_heading}\n")
     for i, issue in enumerate(issues, 1):
         lines.append(f"### Issue {i}: {issue['title']}")
-        if issue["description"]:
+        if issue.get("description"):
             lines.append(issue["description"])
         lines.append("")
-
-    lines.append("Please analyze these issues and fix them. Use the run_python_script tool to query and modify the IFC model, and use revalidate_ifc to check your progress.")
-
-    if human_instructions:
-        lines.append(f"\n## Additional instructions from the reviewer\n{human_instructions}")
-
+    lines.append(closing)
     return "\n".join(lines)
+
+
+def build_initial_user_message(
+    issues: list[dict],
+    human_instructions: str | None = None,
+    *,
+    summarized_element_rows: int | None = None,
+) -> str:
+    """Build the initial user message with the list of issues to fix."""
+    body = format_issues_for_agent_message(
+        issues,
+        summarized_element_rows=summarized_element_rows,
+    )
+    if human_instructions:
+        return body + f"\n\n## Additional instructions from the reviewer\n{human_instructions}"
+    return body
 
 
 def build_review_feedback_message(
