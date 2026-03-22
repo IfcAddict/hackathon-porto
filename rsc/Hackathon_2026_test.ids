@@ -15,7 +15,7 @@
       <ids:applicability minOccurs="1" maxOccurs="unbounded">
         <ids:attribute>
           <ids:name>
-            <ids:simpleValue>Tag</ids:simpleValue>
+            <ids:simpleValue>PredefinedType</ids:simpleValue>
           </ids:name>
         </ids:attribute>
       </ids:applicability>
@@ -24,6 +24,14 @@
           <ids:name>
             <ids:simpleValue>PredefinedType</ids:simpleValue>
           </ids:name>
+        </ids:attribute>
+        <ids:attribute cardinality="prohibited">
+          <ids:name>
+            <ids:simpleValue>PredefinedType</ids:simpleValue>
+          </ids:name>
+          <ids:value>
+            <ids:simpleValue>NOTDEFINED</ids:simpleValue>
+          </ids:value>
         </ids:attribute>
       </ids:requirements>
     </ids:specification>
