@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 
 from rich.markup import escape
 from rich.panel import Panel
@@ -166,7 +167,14 @@ def main():
         sys.exit(2)
 
     engine.save_model(ifc_output_path)
+    
+    # Save the issues summary to a JSON file alongside the IFC
+    issues_json_path = ifc_output_path.replace('.ifc', '_issues.json')
+    with open(issues_json_path, 'w', encoding='utf-8') as f:
+        json.dump(issues, f, indent=2, ensure_ascii=False)
+        
     console.print(f"\n[green]Final IFC saved to:[/] [cyan]{escape(ifc_output_path)}[/]")
+    console.print(f"[green]Issues summary saved to:[/] [cyan]{escape(issues_json_path)}[/]")
 
 
 if __name__ == "__main__":

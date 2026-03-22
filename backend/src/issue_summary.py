@@ -13,6 +13,7 @@ _IFC_TITLE_PREFIX = re.compile(r"^(Ifc[A-Za-z0-9]+)\s*-\s*")
 class _VerboseGroup(TypedDict):
     count: int
     samples: list[str]
+    element_ids: list[str]
 
 
 def _is_verbose_element_issue(title: str) -> bool:
@@ -50,7 +51,7 @@ def summarize_issues_for_agent(
         return compact, 0
 
     groups: dict[tuple[str, str], _VerboseGroup] = defaultdict(
-        lambda: {"count": 0, "samples": []}
+        lambda: {"count": 0, "samples": [], "element_ids": []}
     )
     for issue in verbose:
         ifc = _ifc_class_from_title(issue["title"]) or "Unknown"
@@ -60,6 +61,24 @@ def summarize_issues_for_agent(
         g["count"] += 1
         if len(g["samples"]) < max_sample_titles:
             g["samples"].append((issue.get("title") or "")[:200])
+            
+        # extract globalId from title or from the explicit elementIds list
+        if "elementIds" in issue:
+            g["element_ids"].extend(issue["elementIds"])
+        else:
+            # Try to extract the global ID from BCF titles which usually follow the format: 
+            # IfcClass - Name - reason - GlobalId - Tag
+            parts = issue.get("title", "").split(" - ")
+            if len(parts) >= 4:
+                # The GlobalId is typically the second to last or last part
+                potential_guid = parts[-2].strip()
+                if len(potential_guid) == 22: # Standard length of an IFC Base64 GUID
+                    g["element_ids"].append(potential_guid)
+                else:
+                    # Try the last part just in case
+                    potential_guid_2 = parts[-1].strip()
+                    if len(potential_guid_2) == 22:
+                        g["element_ids"].append(potential_guid_2)
 
     summarized: list[dict] = []
     for (ifc, context), data in sorted(
@@ -85,7 +104,11 @@ def summarize_issues_for_agent(
             for s in data["samples"]:
                 desc_lines.append(f"  - {s}")
 
-        summarized.append({"title": title, "description": "\n".join(desc_lines)})
+        summarized.append({
+            "title": title, 
+            "description": "\n".join(desc_lines),
+            "elementIds": list(set(data["element_ids"]))
+        })
 
     # Compact IDS rows first (overall spec failures), then grouped element-level summaries.
     return compact + summarized, len(verbose)
