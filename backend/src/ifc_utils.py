@@ -34,6 +34,7 @@ def run_ifctester(ifc_path: str, ids_path: str) -> list[dict]:
         spec_desc = spec.get("description", "")
 
         failed_details = []
+        failed_elements = set()
         for req in spec.get("requirements", []):
             if req.get("status"):
                 continue
@@ -42,12 +43,24 @@ def run_ifctester(ifc_path: str, ids_path: str) -> list[dict]:
             failed_details.append(
                 f"- {req_desc} ({total_fail} failures)"
             )
+            for fail_entity in req.get("failed_entities", []):
+                # Extraer GlobalId del diccionario que genera ifctester
+                if isinstance(fail_entity, dict) and "global_id" in fail_entity:
+                    failed_elements.add(fail_entity["global_id"])
+                elif isinstance(fail_entity, dict) and "element" in fail_entity:
+                    el = fail_entity["element"]
+                    if hasattr(el, "GlobalId"):
+                        failed_elements.add(el.GlobalId)
 
         description = spec_desc
         if failed_details:
             description += "\nFailed requirements:\n" + "\n".join(failed_details)
 
-        issues.append({"title": spec_name, "description": description.strip()})
+        issues.append({
+            "title": spec_name, 
+            "description": description.strip(),
+            "elementIds": list(failed_elements)
+        })
 
     return issues
 
