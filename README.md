@@ -22,8 +22,8 @@ AI agent that reads BCF issues (from IDS validation via ifctester, or directly f
    ```bash
    cp .env.template .env
    ```
-   - For local development with Ollama: keep defaults (gemma3:1b)
-   - For production: set `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_API_KEY` for your cloud provider
+   - For local development with Ollama: keep defaults (`LLM_BASE_URL` is the Ollama server root, e.g. `http://localhost:11434`, and `LLM_MODEL` is the pulled model name)
+   - For a remote Ollama instance: set `LLM_BASE_URL` to that host (optional `user:pass@` in the URL if your proxy requires it)
 
 4. If using Ollama locally, make sure it is running and the model is pulled:
    ```bash

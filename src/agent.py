@@ -1,17 +1,16 @@
 from langchain.agents import create_agent
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 
-from src.config import LLM_BASE_URL, LLM_MODEL, LLM_API_KEY
+from src.config import LLM_BASE_URL, LLM_MODEL
 from src.tools import get_tools
 from src.prompts import SYSTEM_PROMPT
 
 
 def build_agent():
     """Build and return a LangGraph ReAct agent wired to the IFC tools."""
-    llm = ChatOpenAI(
+    llm = ChatOllama(
         base_url=LLM_BASE_URL,
         model=LLM_MODEL,
-        api_key=LLM_API_KEY or "not-needed",
     )
 
     tools = get_tools()
