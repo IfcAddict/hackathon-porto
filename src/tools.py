@@ -1,7 +1,11 @@
+import logging
+
 from langchain_core.tools import tool
 
 from src.engine import ScriptEngine
 from src.ifc_utils import run_ifctester
+
+log = logging.getLogger("ifc_agent.tools")
 
 _engine: ScriptEngine | None = None
 _ids_path: str | None = None
@@ -27,6 +31,8 @@ def run_python_script(code: str) -> str:
     Args:
         code: Python code to execute. The `model` variable is pre-loaded.
     """
+    log.info("run_python_script: executing (%d chars of code)", len(code))
+    log.debug("run_python_script code:\n%s", code)
     result = _engine.run(code)
     parts = []
     if result["stdout"]:
@@ -45,6 +51,7 @@ def revalidate_ifc() -> str:
     if _ids_path is None:
         return "No IDS file available for re-validation."
 
+    log.info("revalidate_ifc: saving model and running IDS check")
     _engine.save_model(_ifc_output_path)
 
     issues = run_ifctester(_ifc_output_path, _ids_path)

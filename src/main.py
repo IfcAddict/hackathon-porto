@@ -1,7 +1,8 @@
 import sys
 import os
 
-from src.config import RSC_DIR
+from src.config import GROQ_API_KEY, RSC_DIR
+from src.logging_config import configure_logging
 from src.ifc_utils import scan_rsc_dir, run_ifctester, parse_bcf, copy_ifc_to_output
 from src.engine import ScriptEngine
 from src.tools import init_tools
@@ -78,7 +79,11 @@ def review_loop(issues: list[dict], agent, ifc_output_path: str):
 
 
 def main():
+    configure_logging()
     print("IFC Fix Agent")
+    if not GROQ_API_KEY:
+        print("\nMissing GROQ_API_KEY. Copy .env.template to .env and set your API key.")
+        sys.exit(1)
     print_separator()
 
     files = scan_rsc_dir()

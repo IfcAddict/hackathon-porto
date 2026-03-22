@@ -22,13 +22,9 @@ AI agent that reads BCF issues (from IDS validation via ifctester, or directly f
    ```bash
    cp .env.template .env
    ```
-   - For local development with Ollama: keep defaults (`LLM_BASE_URL` is the Ollama server root, e.g. `http://localhost:11434`, and `LLM_MODEL` is the pulled model name)
-   - For a remote Ollama instance: set `LLM_BASE_URL` to that host (optional `user:pass@` in the URL if your proxy requires it)
-
-4. If using Ollama locally, make sure it is running and the model is pulled:
-   ```bash
-   ollama pull gemma3:1b
-   ```
+   - Set **`GROQ_API_KEY`** from [Groq Console](https://console.groq.com/keys).
+   - Optional: **`GROQ_MODEL`** — default `llama-3.3-70b-versatile` (pick any current tool-capable model from [Groq docs](https://console.groq.com/docs/models)).
+   - Optional: **`LOG_LEVEL=DEBUG`** for fuller terminal logs (including full tool code). **`IFC_AGENT_GRAPH_DEBUG=1`** enables verbose LangGraph traces.
 
 ## Usage
 
