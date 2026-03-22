@@ -12,7 +12,7 @@ An extra feature is the ability to visualize the diff between the original IFC f
 
 /docs folder for documentation
 /src folder for the main application
-/source for the IFC, IDS or BCF files, to be filled by the human before invoking the agent
+/rsc for the IFC, IDS or BCF files, to be filled by the human before invoking the agent
 /output for the IFC copy with the fixes proposed by the AI
 
 It should be set up in such a way that the repo could be cloned by someone else, it would be relatively easy to set it up working. Use an .env.template and a config.py mapping it.
