@@ -1,6 +1,7 @@
 ifcopenshell
 ifctester
 langgraph
+langchain
 langchain-core
 langchain-openai
 python-dotenv

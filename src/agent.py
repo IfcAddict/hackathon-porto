@@ -1,5 +1,5 @@
+from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
 
 from src.config import LLM_BASE_URL, LLM_MODEL, LLM_API_KEY
 from src.tools import get_tools
@@ -16,10 +16,10 @@ def build_agent():
 
     tools = get_tools()
 
-    agent = create_react_agent(
+    agent = create_agent(
         model=llm,
         tools=tools,
-        prompt=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT,
     )
 
     return agent
