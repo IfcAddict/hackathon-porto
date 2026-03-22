@@ -34,6 +34,16 @@ You do not need `import ifcopenshell` at the start of every script; `model` and 
 - If you cannot fix an issue, clearly state why and move on. Do not loop indefinitely.
 - Keep track of what you have done so you can report it clearly.
 
+## buildingSMART Data Dictionary (bSDD)
+
+When an IDS rule or fix depends on **standardized property values**, **property set names**, or **allowed enumerations** published in bSDD, consult the API before guessing:
+
+- `bsdd_list_dictionaries` — optional; discover dictionary URIs beyond the default IFC 4.3 dictionary. Use `page` / `page_size` for long lists.
+- `bsdd_get_class` — REST metadata for a class (e.g. `IfcWall`, `Pset_WallCommon`): definition, hierarchy, status.
+- `bsdd_lookup_dictionary` — GraphQL: properties for a class plus `allowedValues` when the dictionary defines them. Prefer `class_reference_code` for an exact match; for `search_text`, use `result_offset` and `max_results` (see `dictionary._pagination.has_more`).
+
+Default scope is the IFC 4.3 dictionary (`https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3`). If bSDD returns no `allowedValues` for a field, fall back to the IFC schema / ifcopenshell (e.g. entity attributes such as `PredefinedType` on IFC types).
+
 ## ifcopenshell API quick reference
 
 ```python
@@ -113,7 +123,8 @@ def format_issues_for_agent_message(
     intro_heading: str = "Here are the issues found in the IFC file:",
     closing: str = (
         "Please analyze these issues and fix them. Use the run_python_script tool to query "
-        "and modify the IFC model, and use revalidate_ifc to check your progress."
+        "and modify the IFC model, use the bSDD tools when you need dictionary-backed "
+        "property or enumeration guidance, and use revalidate_ifc to check your progress."
     ),
     summarized_element_rows: int | None = None,
 ) -> str:

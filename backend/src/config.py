@@ -16,3 +16,10 @@ RSC_DIR = os.path.join(_ROOT, "rsc")
 OUTPUT_DIR = os.path.join(_ROOT, "output")
 
 MAX_OUTPUT_CHARS = 10_000
+
+# buildingSMART Data Dictionary — https://github.com/buildingSMART/bSDD/blob/master/Documentation/bSDD%20API.md
+BSDD_REST_BASE = (os.getenv("BSDD_REST_BASE") or "https://api.bsdd.buildingsmart.org").strip()
+# GraphQL carries property metadata including allowedValues (see bSDD GraphQL docs).
+# Default is the public test endpoint; production GraphQL requires auth (set URL + token when available).
+BSDD_GRAPHQL_URL = (os.getenv("BSDD_GRAPHQL_URL") or "https://test.bsdd.buildingsmart.org/graphql/").strip()
+BSDD_TOOL_MAX_CHARS = int((os.getenv("BSDD_TOOL_MAX_CHARS") or "16000").strip() or "16000")
