@@ -1,0 +1,6 @@
+ifcopenshell
+ifctester
+langgraph
+langchain-core
+langchain-openai
+python-dotenv
