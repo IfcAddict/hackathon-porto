@@ -8,3 +8,4 @@ output/*.ifc
 output/*.txt
 .cursor/
 .DS_Store
+.vscode/
