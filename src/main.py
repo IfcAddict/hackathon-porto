@@ -1,8 +1,12 @@
 import sys
 import os
 
+from rich.markup import escape
+from rich.panel import Panel
+from rich.rule import Rule
+
 from src.config import GROQ_API_KEY, RSC_DIR
-from src.logging_config import configure_logging
+from src.logging_config import configure_logging, console
 from src.ifc_utils import scan_rsc_dir, run_ifctester, parse_bcf, copy_ifc_to_output
 from src.engine import ScriptEngine
 from src.tools import init_tools
@@ -15,12 +19,12 @@ def collect_issues(files: dict, ifc_path: str) -> list[dict]:
     issues = []
 
     for ids_path in files["ids"]:
-        print(f"  Validating against: {os.path.basename(ids_path)}")
+        console.print(f"  [dim]Validating against:[/] {escape(os.path.basename(ids_path))}")
         ids_issues = run_ifctester(ifc_path, ids_path)
         issues.extend(ids_issues)
 
     for bcf_path in files["bcf"]:
-        print(f"  Reading BCF: {os.path.basename(bcf_path)}")
+        console.print(f"  [dim]Reading BCF:[/] {escape(os.path.basename(bcf_path))}")
         bcf_issues = parse_bcf(bcf_path)
         issues.extend(bcf_issues)
 
@@ -28,97 +32,109 @@ def collect_issues(files: dict, ifc_path: str) -> list[dict]:
 
 
 def print_separator():
-    print("\n" + "=" * 60 + "\n")
+    console.print(Rule(style="dim"))
 
 
 def display_report(final_message: str):
     """Display the agent's final report."""
     print_separator()
-    print("AGENT FIX REPORT")
-    print_separator()
-    print(final_message)
+    console.print(
+        Panel(
+            escape(final_message) if final_message else "(empty)",
+            title="[bold bright_white]AGENT FIX REPORT[/]",
+            border_style="bright_blue",
+            padding=(1, 2),
+        )
+    )
     print_separator()
 
 
 def review_loop(issues: list[dict], agent, ifc_output_path: str):
     """Run the agent, show results, collect feedback, repeat if needed."""
     user_message = build_initial_user_message(issues)
-    print("\nStarting agent...\n")
+    console.print("\n[bold yellow]Starting agent…[/]\n")
     messages = run_agent(agent, user_message)
 
     while True:
         final_message = messages[-1].content if messages else "(no response)"
         display_report(final_message)
 
-        print("Review each issue group. Type ACCEPT or REJECT for each.\n")
+        console.print("[bold]Review each issue group.[/] Type [cyan]ACCEPT[/] or [magenta]REJECT[/] for each.\n")
 
         fix_reviews = []
         for i, issue in enumerate(issues, 1):
             while True:
-                response = input(f"  [{i}] {issue['title']} — ACCEPT / REJECT: ").strip().upper()
+                title = escape(issue["title"])
+                response = console.input(
+                    f"  [dim][{i}][/] {title} [bold]—[/] ACCEPT / REJECT: "
+                ).strip().upper()
                 if response in ("ACCEPT", "REJECT"):
                     fix_reviews.append({
                         "title": issue["title"],
                         "status": response.lower(),
                     })
                     break
-                print("    Please type ACCEPT or REJECT.")
+                console.print("    [yellow]Please type ACCEPT or REJECT.[/]")
 
         print_separator()
-        print("All fixes reviewed. Provide instructions for the agent to do another pass,")
-        print("or press Enter with no text to finish and keep the current result.\n")
-        human_instructions = input("Instructions (or Enter to finish): ").strip()
+        console.print(
+            "[dim]All fixes reviewed. Provide instructions for the agent to do another pass,[/]\n"
+            "[dim]or press Enter with no text to finish and keep the current result.[/]\n"
+        )
+        human_instructions = console.input("[bold]Instructions[/] (or Enter to finish): ").strip()
 
         if not human_instructions:
-            print("\nSession complete. Output saved to:", ifc_output_path)
+            console.print(f"\n[green]Session complete.[/] Output saved to: [cyan]{escape(ifc_output_path)}[/]")
             break
 
         feedback_message = build_review_feedback_message(fix_reviews, human_instructions)
-        print("\nRe-running agent with your feedback...\n")
+        console.print("\n[bold yellow]Re-running agent with your feedback…[/]\n")
         messages = run_agent(agent, feedback_message)
 
 
 def main():
     configure_logging()
-    print("IFC Fix Agent")
+    console.print(Rule("[bold bright_cyan]IFC Fix Agent[/]", style="cyan"))
     if not GROQ_API_KEY:
-        print("\nMissing GROQ_API_KEY. Copy .env.template to .env and set your API key.")
+        console.print(
+            "\n[red]Missing GROQ_API_KEY.[/] Copy .env.template to .env and set your API key."
+        )
         sys.exit(1)
     print_separator()
 
     files = scan_rsc_dir()
 
     if not files["ifc"]:
-        print(f"No IFC files found in {RSC_DIR}")
-        print("Place your IFC file (and optionally IDS/BCF files) in the rsc/ folder.")
+        console.print(f"[red]No IFC files found in[/] [cyan]{escape(RSC_DIR)}[/]")
+        console.print("[dim]Place your IFC file (and optionally IDS/BCF files) in the rsc/ folder.[/]")
         sys.exit(1)
 
     if len(files["ifc"]) > 1:
-        print("Multiple IFC files found. Using the first one:")
+        console.print("[yellow]Multiple IFC files found. Using the first one:[/]")
         for f in files["ifc"]:
-            print(f"  - {os.path.basename(f)}")
+            console.print(f"  [dim]-[/] {escape(os.path.basename(f))}")
 
     ifc_path = files["ifc"][0]
-    print(f"IFC file: {os.path.basename(ifc_path)}")
+    console.print(f"[dim]IFC file:[/] [green]{escape(os.path.basename(ifc_path))}[/]")
 
     if not files["ids"] and not files["bcf"]:
-        print(f"\nNo IDS or BCF files found in {RSC_DIR}")
-        print("Place at least one IDS or BCF file alongside your IFC file.")
+        console.print(f"\n[red]No IDS or BCF files found in[/] [cyan]{escape(RSC_DIR)}[/]")
+        console.print("[dim]Place at least one IDS or BCF file alongside your IFC file.[/]")
         sys.exit(1)
 
-    print("\nCollecting issues...")
+    console.print("\n[bold]Collecting issues…[/]")
     issues = collect_issues(files, ifc_path)
 
     if not issues:
-        print("\nNo issues found — the IFC file passes all validations.")
+        console.print("\n[green]No issues found[/] — the IFC file passes all validations.")
         sys.exit(0)
 
-    print(f"\nFound {len(issues)} issue(s):")
+    console.print(f"\nFound [bold yellow]{len(issues)}[/] issue(s):")
     for i, issue in enumerate(issues, 1):
-        print(f"  {i}. {issue['title']}")
+        console.print(f"  [cyan]{i}.[/] {escape(issue['title'])}")
 
     ifc_output_path = copy_ifc_to_output(ifc_path)
-    print(f"\nWorking copy: {ifc_output_path}")
+    console.print(f"\n[dim]Working copy:[/] [cyan]{escape(ifc_output_path)}[/]")
 
     ids_path = files["ids"][0] if files["ids"] else None
     engine = ScriptEngine(ifc_output_path)
@@ -129,7 +145,7 @@ def main():
     review_loop(issues, agent, ifc_output_path)
 
     engine.save_model(ifc_output_path)
-    print(f"\nFinal IFC saved to: {ifc_output_path}")
+    console.print(f"\n[green]Final IFC saved to:[/] [cyan]{escape(ifc_output_path)}[/]")
 
 
 if __name__ == "__main__":

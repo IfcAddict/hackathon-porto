@@ -3,7 +3,13 @@
 import logging
 import os
 
+from rich.console import Console
+from rich.logging import RichHandler
+
 from src.config import LOG_LEVEL
+
+# Shared Rich console: colors when supported, respects NO_COLOR and TTY.
+console = Console()
 
 
 def configure_logging() -> None:
@@ -11,9 +17,18 @@ def configure_logging() -> None:
     level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
     root = logging.getLogger()
     if not root.handlers:
+        handler = RichHandler(
+            console=console,
+            show_time=True,
+            show_path=False,
+            rich_tracebacks=True,
+            markup=False,
+        )
         logging.basicConfig(
             level=level,
-            format="%(levelname)-5s | %(message)s",
+            format="%(message)s",
+            datefmt="%H:%M:%S",
+            handlers=[handler],
         )
     else:
         root.setLevel(level)

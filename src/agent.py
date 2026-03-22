@@ -5,9 +5,11 @@ from typing import Any
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_groq import ChatGroq
+from rich.panel import Panel
+from rich.syntax import Syntax
 
 from src.config import GROQ_API_KEY, GROQ_MODEL
-from src.logging_config import graph_debug_enabled
+from src.logging_config import console, graph_debug_enabled
 from src.tools import get_tools
 from src.prompts import SYSTEM_PROMPT
 
@@ -74,7 +76,32 @@ def _log_message(msg: BaseMessage) -> None:
         tool_calls = getattr(msg, "tool_calls", None) or []
         for tc in tool_calls:
             name = tc.get("name", "?")
-            args = tc.get("args", {})
+            args = tc.get("args", {}) or {}
+            if name == "run_python_script" and isinstance(args, dict):
+                code = args.get("code")
+                if isinstance(code, str) and code.strip():
+                    shown = _shorten(code)
+                    logger.info(
+                        "[Tool call] run_python_script (%d chars)%s",
+                        len(code),
+                        " [truncated for display]" if len(shown) < len(code) else "",
+                    )
+                    syntax = Syntax(
+                        shown,
+                        "python",
+                        theme="ansi_dark",
+                        line_numbers=True,
+                        word_wrap=True,
+                    )
+                    console.print(
+                        Panel(
+                            syntax,
+                            title="[dim]run_python_script[/]",
+                            border_style="blue",
+                            padding=(0, 1),
+                        )
+                    )
+                    continue
             logger.info("[Tool call] %s\n%s", name, _shorten(_safe_json(args)))
         if logger.isEnabledFor(logging.DEBUG):
             if getattr(msg, "additional_kwargs", None):
@@ -127,7 +154,14 @@ def run_agent(agent, user_message: str) -> list:
     last_messages: list = []
     seen = 0
 
-    for state in agent.stream(inputs, stream_mode="values"):
+    # ToolNode uses a thread pool; our IFC ScriptEngine is one shared process. Run tools
+    # one at a time so scripts and revalidate run in model order and never race.
+    for state in agent.stream(
+        inputs,
+        stream_mode="values",
+        config={"max_concurrency": 1},
+    ):
+
         if not isinstance(state, dict):
             continue
         msgs = state.get("messages") or []

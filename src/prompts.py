@@ -8,6 +8,25 @@ When you need to understand the IFC model, write scripts that query it and print
 
 When you need to fix something, write Python scripts that modify the `model` object in place. Changes persist across script calls within this session.
 
+## Python scripts (critical)
+
+Scripts run with Python `exec()` on the **top level** of a module. **Compound statements** — `for`, `while`, `if`, `try`, `with`, `def`, `class` — **cannot** appear on the same line after other statements separated by semicolons. This is invalid and raises `SyntaxError: invalid syntax`:
+
+```python
+# WRONG — do not do this
+import ifcopenshell; walls = model.by_type("IfcWall"); for w in walls: print(w.PredefinedType)
+```
+
+Use **normal multi-line blocks** instead:
+
+```python
+walls = model.by_type("IfcWall")
+for w in walls:
+    print(w.PredefinedType)
+```
+
+You do not need `import ifcopenshell` at the start of every script; `model` and `ifcopenshell` are already available in the namespace.
+
 ## Strategy
 
 - Break complex fixes into small, incremental scripts. One script per logical step is better than one giant script.
