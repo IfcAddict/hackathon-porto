@@ -2,52 +2,57 @@ import React, { useEffect, useState } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { ViewerContainer } from './components/ViewerContainer';
 import { PropertyPanel } from './components/PropertyPanel';
+import { DiffSidebar } from './components/DiffSidebar';
 import { useAppStore } from './store/useAppStore';
 import { DiffService } from './services/DiffService';
+import { usePollBackendIfcFiles } from './hooks/usePollBackendIfcFiles';
 
 function App() {
-  const { oldModelFile, newModelFile, setDiff } = useAppStore();
+  const { baselineIfcFile, currentIfcFile, setDiff } = useAppStore();
   const [diffService, setDiffService] = useState<DiffService | null>(null);
+
+  usePollBackendIfcFiles();
 
   useEffect(() => {
     const service = new DiffService();
     service.init().then(() => {
       setDiffService(service);
     });
-    
-    // Auto load test files for debugging
-    fetch('/test.ifc').then(r => r.blob()).then(blob => {
-       const file = new File([blob], 'test.ifc');
-       useAppStore.getState().setOldModelFile(file);
-    }).catch(console.error);
-
   }, []);
 
   useEffect(() => {
-    if (diffService && oldModelFile && newModelFile) {
-      console.log("Computing diff...");
-      diffService.compare(oldModelFile, newModelFile)
-        .then((result) => setDiff(result))
-        .catch(err => console.error("Diff computation failed", err));
+    if (!diffService) return;
+    if (!baselineIfcFile || !currentIfcFile) {
+      setDiff(null);
+      return;
     }
-  }, [oldModelFile, newModelFile, diffService, setDiff]);
+
+    let cancelled = false;
+    diffService
+      .compare(baselineIfcFile, currentIfcFile)
+      .then((result) => {
+        if (!cancelled) setDiff(result);
+      })
+      .catch((err) => {
+        console.error("Diff computation failed", err);
+        if (!cancelled) setDiff(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baselineIfcFile, currentIfcFile, diffService, setDiff]);
 
   return (
     <div className="w-screen h-screen flex flex-col bg-slate-900 overflow-hidden font-sans">
       <Toolbar />
       
-      <div className="flex-1 flex w-full relative pt-16 border-t border-slate-700">
-        {/* Left pane - Old version */}
-        <div className="flex-1 relative border-r border-slate-700">
-          <ViewerContainer viewerId="old" modelFile={oldModelFile} />
-        </div>
-        
-        {/* Right pane - New version */}
-        <div className="flex-1 relative">
-          <ViewerContainer viewerId="new" modelFile={newModelFile} />
+      <div className="flex-1 flex w-full min-h-0 relative pt-16 border-t border-slate-700">
+        <DiffSidebar />
+        <div className="flex-1 relative min-w-0 min-h-0">
+          <ViewerContainer modelFile={currentIfcFile} />
         </div>
 
-        {/* Global floating UI */}
         <PropertyPanel />
       </div>
     </div>

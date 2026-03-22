@@ -11,30 +11,37 @@ export interface DiffResult {
   }>;
 }
 
+/** Sidebar “isolate in viewer” target for a chosen diff row. */
+export interface DiffFocus {
+  globalId: string;
+}
+
 interface AppState {
-  oldModelFile: File | null;
-  newModelFile: File | null;
+  /** Baseline IFC — parsed for diff only, not shown in the 3D viewer. */
+  baselineIfcFile: File | null;
+  /** Current/revised IFC — loaded in the single viewer; diff vs baseline drives highlights. */
+  currentIfcFile: File | null;
   diff: DiffResult | null;
+  diffFocus: DiffFocus | null;
   selection: string | null;
-  syncEnabled: boolean;
-  
-  setOldModelFile: (file: File | null) => void;
-  setNewModelFile: (file: File | null) => void;
+
+  setBaselineIfcFile: (file: File | null) => void;
+  setCurrentIfcFile: (file: File | null) => void;
   setDiff: (diff: DiffResult | null) => void;
+  setDiffFocus: (focus: DiffFocus | null) => void;
   setSelection: (globalId: string | null) => void;
-  setSyncEnabled: (enabled: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  oldModelFile: null,
-  newModelFile: null,
+  baselineIfcFile: null,
+  currentIfcFile: null,
   diff: null,
+  diffFocus: null,
   selection: null,
-  syncEnabled: true,
 
-  setOldModelFile: (file) => set({ oldModelFile: file }),
-  setNewModelFile: (file) => set({ newModelFile: file }),
-  setDiff: (diff) => set({ diff }),
+  setBaselineIfcFile: (file) => set({ baselineIfcFile: file }),
+  setCurrentIfcFile: (file) => set({ currentIfcFile: file }),
+  setDiff: (diff) => set({ diff, diffFocus: null }),
+  setDiffFocus: (focus) => set({ diffFocus: focus }),
   setSelection: (globalId) => set({ selection: globalId }),
-  setSyncEnabled: (enabled) => set({ syncEnabled: enabled }),
 }));

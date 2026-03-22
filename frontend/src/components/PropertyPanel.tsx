@@ -27,6 +27,18 @@ export const PropertyPanel: React.FC = () => {
 
   const modifications = diff?.modified[selection];
 
+  const fmt = (v: unknown) => {
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "object") {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    }
+    return String(v);
+  };
+
   return (
     <div className="absolute top-20 right-4 w-80 bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-40 text-slate-200">
       <div className="flex items-center justify-between px-4 py-3 bg-slate-800 border-b border-slate-700">
@@ -49,18 +61,44 @@ export const PropertyPanel: React.FC = () => {
            <span className={`text-sm font-semibold ${statusColor}`}>{status}</span>
         </div>
 
+        {modifications?.attributes && (
+          <div className="mt-4 border-t border-slate-700 pt-4">
+            <h4 className="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3">
+              Changed IFC attributes
+            </h4>
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+              {Object.entries(modifications.attributes).map(([field, data]) => (
+                <div
+                  key={field}
+                  className="bg-slate-800 rounded p-2 border border-slate-700 text-xs"
+                >
+                  <div className="font-semibold text-slate-300 mb-1 break-all">{field}</div>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 mt-2">
+                    <span className="text-red-400 shrink-0">Old:</span>
+                    <span className="text-slate-300 break-all">{fmt(data.old)}</span>
+                    <span className="text-emerald-400 shrink-0">New:</span>
+                    <span className="text-slate-300 break-all">{fmt(data.new)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {modifications?.properties && (
           <div className="mt-4 border-t border-slate-700 pt-4">
-            <h4 className="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3">Modified Fields</h4>
+            <h4 className="text-xs uppercase tracking-wider text-slate-400 font-bold mb-3">
+              Modified property sets
+            </h4>
             <div className="space-y-3">
               {Object.entries(modifications.properties).map(([field, data]: [string, any]) => (
                 <div key={field} className="bg-slate-800 rounded p-2 border border-slate-700 text-xs">
                   <div className="font-semibold text-slate-300 mb-1">{field}</div>
                   <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 mt-2">
                     <span className="text-red-400">Old:</span>
-                    <span className="text-slate-300 truncate">{data.old || "null"}</span>
+                    <span className="text-slate-300 truncate">{fmt(data.old)}</span>
                     <span className="text-emerald-400">New:</span>
-                    <span className="text-slate-300 truncate">{data.new || "null"}</span>
+                    <span className="text-slate-300 truncate">{fmt(data.new)}</span>
                   </div>
                 </div>
               ))}
