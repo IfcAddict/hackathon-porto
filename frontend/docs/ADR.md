@@ -1,345 +1,110 @@
-# Dual IFC Viewer with synchronized diff visualization (frontend-only)
+# Single IFC viewer with client-side diff (frontend-first)
 
 ## Context
 
-This feature is part of an openBIM hackathon application focused on enabling a human-in-the-loop workflow to review and validate changes applied by an AI agent over IFC models.
+This feature supports a human-in-the-loop workflow to review changes on IFC models (e.g. after an AI-assisted edit). The app runs primarily in the browser: it loads IFCs, compares them locally, and shows **one** 3D view of the **current** model with highlights for **added** and **modified** elements. **Deleted** elements appear in the diff list only (they are not present in the current file).
 
-Originally designed with a backend for IFC processing, this version removes backend dependencies and implements all functionality directly in the browser.
-
-The system:
-
-* Loads two IFC models directly in the browser
-* Parses and analyzes them client-side
-* Computes differences locally
-* Visualizes results in real time
-
-The implementation uses the ecosystem of That Open Company (IFC.js + Open BIM Components) while remaining rendering-engine agnostic.
+The stack uses That Open Company tooling (IFC.js / Open BIM Components) behind a small `ViewerAdapter` so the renderer can be swapped later.
 
 ## Objectives
 
-* Fully client-side IFC comparison
-* No backend dependency
-* Immediate interaction and feedback
-* Maintain extensibility for future engines (IFClite, etc.)
-* Provide usable UI for diff inspection
+- Fully client-side IFC comparison (no server required for parsing/diff)
+- One viewport: orbit, pan, zoom, select, property panel
+- Clear visual encoding for changes that exist in the loaded model
+- Extensible adapter boundary for other engines later
 
 ## Functional requirements
 
-### Dual viewer layout
+### IFC inputs (two files, one viewport)
 
-* Two viewers:
+- **Baseline IFC** — used only to compute the diff (what existed before).
+- **Current IFC** — loaded into the **single** 3D viewer; diff against baseline drives sidebar and highlights.
 
-  * Left: Old model
-  * Right: New model
-* Split screen layout
+Users can upload both files from the toolbar. In dev/preview, a hook can poll the backend folders (see below) and populate the same two `File` handles in the store.
 
 ### Navigation and interaction
 
-Each viewer supports:
+- Orbit, pan, zoom on the one viewer
+- Element selection and highlight
+- Property / diff-detail panel for the selected `GlobalId`
+- Diff sidebar: deleted / added / modified lists; row focus can isolate an element in the viewer when it exists in the current model
 
-* Orbit
-* Pan
-* Zoom
+### What is not in scope anymore
 
-Additional:
-
-* Element selection
-* Highlight on selection
-* Property inspection panel
-
-### Camera synchronization
-
-* Bidirectional synchronization
-* Parameters:
-
-  * Position
-  * Target
-  * Projection type
-  * Zoom / FOV
-
-Behavior:
-
-* Sync enabled by default
-* Can be disabled per viewer
-* Re-enabling sync aligns to active camera
-
-### Camera types
-
-* Perspective and orthographic
-* Switching propagates to both viewers
-
-### Model loading
-
-* User uploads or selects:
-
-  * Old IFC
-  * New IFC
-
-* Default paths optional but not required
+- Split-screen or second viewer
+- Camera sync between viewers (removed with the second viewer)
 
 ## Element comparison
 
 ### Matching strategy
 
-* Match via `GlobalId`
-* Rules:
-
-  * Only in old → Deleted
-  * Only in new → Added
-  * In both → Compare
-
-### Comparison types (user-controlled)
-
-* Geometry (bounding box)
-* Placement
-* Properties (Psets)
-* IFC attributes
-
-### Comparison depth
-
-* Deep comparison:
-
-  * Exact property differences
-  * Attribute differences
-  * Placement changes
-  * Geometry differences (bounding box level)
+- Match by `GlobalId`
+- Only in baseline → **Deleted**
+- Only in current → **Added**
+- In both → attribute-level compare → **Modified** when IFC line data differs
 
 ### Diff classification
 
-* Deleted
-* Added
-* Modified
+- **Deleted** / **Added** / **Modified**
+- Modified detail can include attribute-level `{ old, new }` pairs (domain language; not “two viewers”)
 
-All differences count (no tolerance threshold)
+### Visual encoding (3D)
 
-### Visual encoding
+Configured in frontend config (e.g. `diffVisual.ts`):
 
-Configured via `.env` (or frontend config)
+- **Added** and **Modified** are highlighted on the loaded (current) model
+- **Deleted** is not drawn in the current model; listed in the UI only
 
-Defaults:
+## Technical architecture
 
-* Deleted → Red
-* Added → Green
-* Modified → Amber
-
-### Property inspection panel
-
-Displays:
-
-* GlobalId
-* IFC class
-* Status
-
-If modified:
-
-```id="2m2k2w"
-Field
-Old value
-New value
-```
-
-## Technical requirements
-
-## Architecture overview
-
-Pure frontend application:
-
-```id="rj6jxy"
-UI (React recommended)
+```text
+UI (React)
    ↓
-Application logic (diff + state)
+Zustand store (baseline file, current file, diff, selection, focus)
    ↓
-ViewerAdapter
-   ↓
-Rendering engine (OBC / IFC.js)
+DiffService (web-ifc)          ViewerAdapter → OBCViewerAdapter
 ```
 
-## Critical design principle: rendering abstraction
+### ViewerAdapter (current responsibilities)
 
-Define:
-
-```id="e4gnfw"
-ViewerAdapter
-  - loadModel(ifcFile)
-  - setCamera(params)
-  - getCamera()
-  - highlightElement(globalId, color)
-  - isolateElement(globalId)
-  - onElementSelect(callback)
-  - getElementData(globalId)
-```
-
-### Adapter implementation (current)
-
-```id="x3b6kx"
-OBCViewerAdapter
-```
-
-Responsibilities:
-
-* Wrap IFC.js / OBC viewer
-* Map `GlobalId ↔ ExpressID`
-* Handle highlighting
-* Provide element data access
-
-### Future adapters
-
-```id="k3v98f"
-IfcLiteAdapter
-OtherViewerAdapter
-```
-
-## IFC processing (client-side)
-
-All IFC parsing and comparison happens in browser.
-
-Use:
-
-* `web-ifc` (WASM)
-
-Extract:
-
-* GlobalId
-* IFC class
-* Attributes
-* Property sets
-* Placement
-* Bounding box (computed)
-
-## Diff computation (client-side)
+- `init`, `loadModel`, selection callback
+- Diff overlay: `applyDiffAndIsolate`, `reapplyDiffHighlighterLayer`, `setFragmentIsolate`, highlights
+- No camera replication API (single viewer)
 
 ### DiffService
 
-```id="6w7d3p"
-DiffService
-  - buildIndex(ifcModel)
-  - compare(oldModel, newModel, options)
-```
+- `init()` WASM
+- `compare(baselineFile, currentFile)` → `{ added, deleted, modified }`
 
-### Internal model structure
+### Dev/preview: backend folder polling
 
-```id="dljtq1"
-{
-  GlobalId: {
-    type: "IfcWall",
-    attributes: {...},
-    properties: {...},
-    placement: {...},
-    bbox: {...}
-  }
-}
-```
+The Vite plugin `ifc-dirs` exposes:
 
-### Diff output
+- `GET /api/ifc-meta` — JSON `{ baseline, current }` with first `.ifc` in `backend/rsc` and matching basename in `backend/output` (mtime for change detection)
+- `GET /rsc/:file.ifc` and `GET /output/:file.ifc` — raw IFC bytes
 
-```id="qkq2cz"
-{
-  added: [],
-  deleted: [],
-  modified: {
-    GlobalId: {
-      attributes: {...},
-      properties: {...},
-      placement: {...},
-      geometry: {...}
-    }
-  }
-}
-```
+The hook `usePollBackendIfcFiles` polls `/api/ifc-meta` and updates `baselineIfcFile` / `currentIfcFile` in the store when files change. This replaces any older “left/right viewer” auto-load wording; it is **one mechanism for two input files**, not two viewports.
 
-## Mapping layer
+## State shape (conceptual)
 
-Required:
+- `baselineIfcFile`, `currentIfcFile`
+- `diff`, `diffFocus`, `selection`
 
-```id="k9x1fw"
-MappingService
-  - globalIdToExpressId
-  - expressIdToGlobalId
-```
+## Performance notes
 
-## Highlighting strategy (IFC.js)
-
-* Convert `GlobalId → ExpressID`
-* Apply subset or material override
-
-## Frontend responsibilities
-
-* Load IFC files
-* Build internal data structures
-* Compute diff
-* Render viewers
-* Sync cameras
-* Handle selection
-* Display property panel
-* Apply color states
-
-## Synchronization mechanism
-
-```id="5k5d9o"
-onCameraChange(viewerA):
-  if syncEnabled:
-    viewerB.setCamera(viewerA.getCamera())
-```
-
-* Use lock flag to avoid loops
-
-## State management
-
-Suggested structure:
-
-```id="6q1g1u"
-AppState
-  - models (old, new)
-  - diff
-  - selection
-  - cameraState
-  - syncEnabled
-  - comparisonOptions
-```
-
-## Performance considerations
-
-* Use web workers for diff computation (recommended)
-* Avoid blocking UI thread
-* Cache parsed IFC data
-* Incremental processing where possible
+- Large models: consider Web Workers for diff (not required for the initial hackathon scope)
+- Parse/cache strategies can live behind `DiffService` later
 
 ## Configuration
 
-```id="8oy3yk"
-COLOR_ADDED=#00FF00
-COLOR_DELETED=#FF0000
-COLOR_MODIFIED=#FFC107
-
-DEFAULT_CAMERA=perspective
-SYNC_ENABLED=true
-```
-
-## UX considerations
-
-* Immediate feedback after loading models
-* Clear color distinction
-* Smooth navigation
-* Fast selection and response
-* Visible sync state
+Colors and similar defaults live in frontend source (e.g. `src/config/diffVisual.ts`), not in a dual-viewer sync flag.
 
 ## Non-goals
 
-* Backend processing
-* Persistent storage
-* Advanced geometry diff
-* Accept/reject workflow
-
-## Future extensions
-
-* Optional backend for heavy models
-* BCF integration
-* AI explanation layer
-* Migration to IFClite
-* Advanced filtering
+- Server-side IFC diff in this ADR path
+- Persistent storage
+- Full geometric diff (beyond what the diff service implements today)
 
 ## Key design decision
 
-All logic (parsing, diff, visualization state) is executed client-side.
-
-Rendering engine is replaceable and fully abstracted.
+All parsing and diff logic for comparison runs in the browser. **Two IFC files** are required for **semantic** diff; **one** Three.js/OBC world shows the **current** revision and paints modifications that exist in that file.

@@ -1,19 +1,40 @@
 import React from "react";
-import { Upload, Camera, Link, Unlink } from "lucide-react";
+import { Upload } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 
-export const Toolbar: React.FC = () => {
-  const { oldModelFile, newModelFile, setOldModelFile, setNewModelFile, syncEnabled, setSyncEnabled } = useAppStore();
+function fmtDiff(diff: {
+  added: string[];
+  deleted: string[];
+  modified: Record<string, unknown>;
+} | null) {
+  if (!diff) return null;
+  const m = Object.keys(diff.modified).length;
+  if (diff.added.length + diff.deleted.length + m === 0) return "No changes";
+  const parts: string[] = [];
+  if (diff.deleted.length) parts.push(`${diff.deleted.length} deleted`);
+  if (diff.added.length) parts.push(`${diff.added.length} added`);
+  if (m) parts.push(`${m} modified`);
+  return parts.join(" · ");
+}
 
-  const handleOldUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+export const Toolbar: React.FC = () => {
+  const {
+    baselineIfcFile,
+    currentIfcFile,
+    diff,
+    setBaselineIfcFile,
+    setCurrentIfcFile,
+  } = useAppStore();
+
+  const handleBaselineUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setOldModelFile(e.target.files[0]);
+      setBaselineIfcFile(e.target.files[0]);
     }
   };
 
-  const handleNewUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCurrentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      setNewModelFile(e.target.files[0]);
+      setCurrentIfcFile(e.target.files[0]);
     }
   };
 
@@ -22,30 +43,29 @@ export const Toolbar: React.FC = () => {
       <div className="flex gap-4">
         <label className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded cursor-pointer transition-colors border border-slate-600">
           <Upload size={18} />
-          <span className="text-sm font-medium">{oldModelFile ? oldModelFile.name : "Load Old IFC"}</span>
-          <input type="file" accept=".ifc" className="hidden" onChange={handleOldUpload} />
+          <span className="text-sm font-medium">
+            {baselineIfcFile ? baselineIfcFile.name : "Baseline IFC (for diff)"}
+          </span>
+          <input type="file" accept=".ifc" className="hidden" onChange={handleBaselineUpload} />
         </label>
-        
+
         <label className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded cursor-pointer transition-colors border border-slate-600">
           <Upload size={18} />
-          <span className="text-sm font-medium">{newModelFile ? newModelFile.name : "Load New IFC"}</span>
-          <input type="file" accept=".ifc" className="hidden" onChange={handleNewUpload} />
+          <span className="text-sm font-medium">
+            {currentIfcFile ? currentIfcFile.name : "Current IFC (shown in viewer)"}
+          </span>
+          <input type="file" accept=".ifc" className="hidden" onChange={handleCurrentUpload} />
         </label>
       </div>
 
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={() => setSyncEnabled(!syncEnabled)}
-          className={`flex items-center gap-2 px-4 py-2 rounded font-medium transition-colors border ${
-            syncEnabled 
-              ? "bg-blue-600 hover:bg-blue-700 border-blue-500 text-white" 
-              : "bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-300"
-          }`}
+      {baselineIfcFile && currentIfcFile && (
+        <div
+          className="hidden sm:block text-xs text-slate-400 max-w-[280px] truncate text-right"
+          title={fmtDiff(diff) ?? ""}
         >
-          {syncEnabled ? <Link size={18} /> : <Unlink size={18} />}
-          {syncEnabled ? "Sync Enabled" : "Sync Disabled"}
-        </button>
-      </div>
+          {fmtDiff(diff) ?? "Computing diff…"}
+        </div>
+      )}
     </div>
   );
 };

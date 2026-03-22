@@ -1,20 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { OBCViewerAdapter } from "../services/OBCViewerAdapter";
-import { CameraParams, ViewerAdapter } from "../services/ViewerAdapter";
-import { useAppStore } from "../store/useAppStore";
+import { ViewerAdapter } from "../services/ViewerAdapter";
+import { useAppStore, type DiffResult } from "../store/useAppStore";
+
+function focusIsolateIds(focus: { globalId: string } | null): string[] | null {
+  if (!focus) return null;
+  return [focus.globalId];
+}
 
 interface ViewerContainerProps {
   modelFile: File | null;
-  viewerId: "old" | "new";
 }
 
-export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile, viewerId }) => {
+export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [adapter, setAdapter] = useState<ViewerAdapter | null>(null);
-  const { setSelection, syncEnabled, setSyncEnabled } = useAppStore();
+  const setSelection = useAppStore((s) => s.setSelection);
   const [loading, setLoading] = useState(false);
 
   const initialized = useRef(false);
+  /** Post-load apply chain only — must not share a counter with diff/focus or the diff effect invalidates load. */
+  const loadApplyGenRef = useRef(0);
+  /** Diff / isolate / focus rapid-click guard (independent from load). */
+  const diffFocusGenRef = useRef(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -23,11 +31,11 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile, vie
 
     let mounted = true;
     const viewerAdapter = new OBCViewerAdapter();
-    
+
     async function setupViewer() {
       if (!containerRef.current) return;
       await viewerAdapter.init(containerRef.current);
-      
+
       if (!mounted) {
         viewerAdapter.dispose();
         return;
@@ -37,99 +45,107 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile, vie
         setSelection(globalId);
       });
 
-      viewerAdapter.onCameraChange((params) => {
-        if (syncEnabled) {
-           // trigger globally
-           window.dispatchEvent(new CustomEvent("sync-camera", { 
-             detail: { source: viewerId, params } 
-           }));
-        }
-      });
-
       setAdapter(viewerAdapter);
     }
-    
+
     setupViewer();
 
     return () => {
       mounted = false;
       viewerAdapter.dispose();
     };
-  }, []);
+  }, [setSelection]);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // Listen for sync events
-  useEffect(() => {
-    if (!adapter || !syncEnabled) return;
-
-    const handleSync = (e: Event) => {
-      const ev = e as CustomEvent;
-      if (ev.detail.source !== viewerId && ev.detail.params) {
-        adapter.setCamera(ev.detail.params as CameraParams);
-      }
-    };
-
-    window.addEventListener("sync-camera", handleSync);
-    return () => window.removeEventListener("sync-camera", handleSync);
-  }, [adapter, syncEnabled, viewerId]);
 
   // Load model when file changes
   useEffect(() => {
     if (!adapter || !modelFile) return;
+
+    const myGen = ++loadApplyGenRef.current;
+    const stale = () => myGen !== loadApplyGenRef.current;
 
     const load = async () => {
       setLoading(true);
       setErrorMsg(null);
       try {
         await adapter.loadModel(modelFile);
+        if (stale()) return;
+        const st = useAppStore.getState();
+        await adapter.applyDiffAndIsolate(
+          st.diff,
+          focusIsolateIds(st.diffFocus),
+          stale
+        );
       } catch (e: any) {
         console.error("Failed to load IFC", e);
         setErrorMsg(e?.message || String(e));
       } finally {
-        setLoading(false);
+        if (!stale()) setLoading(false);
       }
     };
-    load();
+    void load();
+    return () => {
+      loadApplyGenRef.current++;
+    };
   }, [adapter, modelFile]);
 
-  // Handle highlights when diff is active (simplified)
   const diff = useAppStore((state) => state.diff);
+  const diffFocus = useAppStore((state) => state.diffFocus);
+
+  const prevDiffRef = useRef<DiffResult | null | undefined>(undefined);
+
   useEffect(() => {
-    if (!adapter || !diff) return;
+    prevDiffRef.current = undefined;
+  }, [adapter]);
 
-    adapter.clearHighlights();
+  useEffect(() => {
+    if (!adapter) return;
 
-    if (viewerId === "old") {
-      adapter.highlightElements(diff.deleted, "#EF4444"); // Red
-      adapter.highlightElements(Object.keys(diff.modified), "#F59E0B"); // Amber
-    } else {
-      adapter.highlightElements(diff.added, "#10B981"); // Green
-      adapter.highlightElements(Object.keys(diff.modified), "#F59E0B"); // Amber
-    }
-  }, [adapter, diff, viewerId]);
+    const myGen = ++diffFocusGenRef.current;
+    const stale = () => myGen !== diffFocusGenRef.current;
+
+    const prev = prevDiffRef.current;
+    const diffChanged = prev !== diff;
+    const focusIds = focusIsolateIds(diffFocus);
+
+    const run = async () => {
+      if (diffChanged) {
+        await adapter.applyDiffAndIsolate(diff, focusIds, stale);
+      } else {
+        await adapter.setFragmentIsolate(focusIds, stale);
+        if (diff) await adapter.reapplyDiffHighlighterLayer(diff, stale);
+      }
+      if (!stale()) prevDiffRef.current = diff;
+    };
+
+    void run();
+    return () => {
+      diffFocusGenRef.current++;
+    };
+  }, [adapter, diff, diffFocus]);
 
   return (
     <div className="relative w-full h-full bg-slate-900 overflow-hidden">
       <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-slate-800/80 rounded text-slate-300 font-semibold text-sm border border-slate-700/50 backdrop-blur-sm pointer-events-none">
-        {viewerId === "old" ? "Old Version" : "New Version"}
+        Current model
       </div>
 
       {loading && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="flex flex-col items-center">
-             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-             <div className="mt-4 text-slate-200 font-medium">Loading {modelFile?.name}...</div>
+            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="mt-4 text-slate-200 font-medium">Loading {modelFile?.name}...</div>
           </div>
         </div>
       )}
 
       {errorMsg && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 text-center text-red-400">
-           <div className="bg-slate-800 p-4 rounded max-w-lg border border-red-500/50">
-             <h3 className="text-red-500 font-bold mb-2">Error during load</h3>
-             <pre className="text-xs whitespace-pre-wrap">{errorMsg}</pre>
-           </div>
+          <div className="bg-slate-800 p-4 rounded max-w-lg border border-red-500/50">
+            <h3 className="text-red-500 font-bold mb-2">Error during load</h3>
+            <pre className="text-xs whitespace-pre-wrap">{errorMsg}</pre>
+          </div>
         </div>
       )}
 
