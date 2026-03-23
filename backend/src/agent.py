@@ -4,7 +4,13 @@ import time
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_groq import ChatGroq
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -13,7 +19,13 @@ from src.config import (
     GROQ_429_MAX_RETRIES,
     GROQ_429_MAX_SLEEP_SEC,
     GROQ_API_KEY,
+    GROQ_CONTEXT_COMPACT_MAX_PASSES,
     GROQ_MODEL,
+)
+from src.context_compact import (
+    compact_thread_tool_results,
+    is_context_payload_too_large,
+    thread_has_compactable_tool_rounds,
 )
 from src.groq_rate_limit import (
     GroqDailyQuotaExceeded,
@@ -167,56 +179,102 @@ def run_agent(agent, user_message: str) -> list:
     :class:`GroqDailyQuotaExceeded` (daily RPD exhausted).
     """
     logger.info("Starting agent run (user message: %d chars)", len(user_message))
-    inputs = {"messages": [("user", user_message)]}
+    inputs: dict = {"messages": [("user", user_message)]}
+    compact_pass = 0
 
-    attempt = 0
     while True:
-        attempt += 1
+        attempt = 0
         last_messages: list = []
-        seen = 0
-        try:
-            # ToolNode uses a thread pool; our IFC ScriptEngine is one shared process.
-            for state in agent.stream(
-                inputs,
-                stream_mode="values",
-                config={"max_concurrency": 1},
-            ):
-                if not isinstance(state, dict):
-                    continue
-                msgs = state.get("messages") or []
-                if len(msgs) > seen:
-                    for i in range(seen, len(msgs)):
-                        _log_message(msgs[i])
-                    seen = len(msgs)
-                last_messages = msgs
-        except BaseException as exc:
-            resp = find_429_response(exc)
-            if resp is None:
-                raise
-            if daily_quota_exhausted(resp):
-                raise GroqDailyQuotaExceeded(format_daily_quota_message(resp)) from exc
-            if attempt >= GROQ_429_MAX_RETRIES:
-                raise RuntimeError(
-                    f"Groq rate limit (HTTP 429) persisted after {GROQ_429_MAX_RETRIES} "
-                    "full run retries. Increase GROQ_429_MAX_RETRIES or wait."
-                ) from exc
-            wait_sec = wait_seconds_before_retry(
-                resp,
-                max_sleep=GROQ_429_MAX_SLEEP_SEC,
-            )
-            logger.warning(
-                "Groq rate limited (HTTP 429); waiting %.1f s then restarting agent run "
-                "(attempt %d/%d).",
-                wait_sec,
-                attempt,
-                GROQ_429_MAX_RETRIES,
-            )
-            console.print(
-                f"[yellow]Groq rate limit — waiting {wait_sec:.0f} s, then retrying this run "
-                f"({attempt}/{GROQ_429_MAX_RETRIES})…[/]"
-            )
-            time.sleep(wait_sec)
-            continue
+        while True:
+            attempt += 1
+            seen = 0
+            try:
+                # ToolNode uses a thread pool; our IFC ScriptEngine is one shared process.
+                for state in agent.stream(
+                    inputs,
+                    stream_mode="values",
+                    config={"max_concurrency": 1},
+                ):
+                    if not isinstance(state, dict):
+                        continue
+                    msgs = state.get("messages") or []
+                    if len(msgs) > seen:
+                        for i in range(seen, len(msgs)):
+                            _log_message(msgs[i])
+                        seen = len(msgs)
+                    last_messages = msgs
+            except BaseException as exc:
+                if (
+                    is_context_payload_too_large(exc)
+                    and compact_pass < GROQ_CONTEXT_COMPACT_MAX_PASSES
+                    and last_messages
+                ):
+                    if not thread_has_compactable_tool_rounds(last_messages):
+                        raise RuntimeError(
+                            "Groq rejected the request as too large, but the thread has no "
+                            "assistant tool rounds left to compact. Shorten the initial prompt, "
+                            "trim long assistant messages, or raise TPM limits."
+                        ) from exc
+                    compact_pass += 1
+                    logger.warning(
+                        "Groq request too large (TPM/payload); compacting tool rounds "
+                        "(pass %d/%d, %d messages).",
+                        compact_pass,
+                        GROQ_CONTEXT_COMPACT_MAX_PASSES,
+                        len(last_messages),
+                    )
+                    console.print(
+                        f"[yellow]Context too large for Groq — collapsing tool rounds into summaries "
+                        f"({compact_pass}/{GROQ_CONTEXT_COMPACT_MAX_PASSES}), then continuing…[/]"
+                    )
+                    inputs = {"messages": compact_thread_tool_results(list(last_messages))}
+                    break
 
-        logger.info("Agent run finished (%d messages in history)", len(last_messages))
-        return last_messages
+                if is_context_payload_too_large(exc):
+                    if compact_pass >= GROQ_CONTEXT_COMPACT_MAX_PASSES:
+                        logger.error(
+                            "Groq 413 (request too large): context compaction already ran %d/%d pass(es); "
+                            "increase GROQ_CONTEXT_COMPACT_MAX_PASSES or shrink tool outputs.",
+                            compact_pass,
+                            GROQ_CONTEXT_COMPACT_MAX_PASSES,
+                        )
+                    elif not last_messages:
+                        logger.error(
+                            "Groq 413 (request too large): graph state had no messages; cannot compact."
+                        )
+                    elif not thread_has_compactable_tool_rounds(last_messages):
+                        logger.error(
+                            "Groq 413 (request too large): no tool rounds left to compact "
+                            "(no tool_calls / ToolMessage pairs)."
+                        )
+
+                resp = find_429_response(exc)
+                if resp is None:
+                    raise
+                if daily_quota_exhausted(resp):
+                    raise GroqDailyQuotaExceeded(format_daily_quota_message(resp)) from exc
+                if attempt >= GROQ_429_MAX_RETRIES:
+                    raise RuntimeError(
+                        f"Groq rate limit (HTTP 429) persisted after {GROQ_429_MAX_RETRIES} "
+                        "full run retries. Increase GROQ_429_MAX_RETRIES or wait."
+                    ) from exc
+                wait_sec = wait_seconds_before_retry(
+                    resp,
+                    max_sleep=GROQ_429_MAX_SLEEP_SEC,
+                )
+                logger.warning(
+                    "Groq rate limited (HTTP 429); waiting %.1f s then restarting agent run "
+                    "(attempt %d/%d).",
+                    wait_sec,
+                    attempt,
+                    GROQ_429_MAX_RETRIES,
+                )
+                console.print(
+                    f"[yellow]Groq rate limit — waiting {wait_sec:.0f} s, then retrying this run "
+                    f"({attempt}/{GROQ_429_MAX_RETRIES})…[/]"
+                )
+                time.sleep(wait_sec)
+                continue
+
+            logger.info("Agent run finished (%d messages in history)", len(last_messages))
+            return last_messages

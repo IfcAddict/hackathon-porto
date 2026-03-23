@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import TypedDict
 
 # IfcTester BCF topics use titles like: IfcClass - Name - reason - GlobalId - Tag
@@ -24,6 +24,25 @@ def _is_verbose_element_issue(title: str) -> bool:
 def _ifc_class_from_title(title: str) -> str | None:
     m = _IFC_TITLE_PREFIX.match((title or "").strip())
     return m.group(1) if m else None
+
+
+def _brief_label_from_title(title: str, ifc_class: str) -> str:
+    """Strip redundant Ifc class prefix and trailing IDS boilerplate from a BCF-style title."""
+    t = (title or "").strip()
+    prefix = f"{ifc_class} - "
+    if ifc_class != "Unknown" and t.startswith(prefix):
+        rest = t[len(prefix) :]
+    elif " - " in t:
+        _first, rest = t.split(" - ", 1)
+        rest = rest.strip()
+    else:
+        return t[:80] + ("…" if len(t) > 80 else "")
+    if " - " in rest:
+        name = rest.split(" - ", 1)[0].strip()
+        out = name
+    else:
+        out = rest
+    return out[:80] + ("…" if len(out) > 80 else "")
 
 
 def summarize_issues_for_agent(
@@ -92,18 +111,8 @@ def summarize_issues_for_agent(
             spec_hint = spec_hint[: context_head_chars - 1] + "…"
         title = f"{ifc} ×{n} — {spec_hint}"
 
-        desc_lines = [
-            f"**{n} element-level report(s)** merged into this single task (same IFC type and IDS rule context).",
-            "",
-            f"- **Target with ifcopenshell:** `model.by_type(\"{ifc}\")` (and related types if the rule applies to occurrences vs types).",
-            f"- **Rule context (from IDS / BCF):** {context}",
-            "",
-            "**Fix approach:** Inspect the failing attribute or facet named in the context; apply a bulk fix across all matching instances, then call `revalidate_ifc`. You do **not** need individual GlobalIds unless a spot fix is required.",
-        ]
-        if data["samples"]:
-            desc_lines.extend(["", "Example original labels (truncated):"])
-            for s in data["samples"]:
-                desc_lines.append(f"  - {s}")
+        briefs = [_brief_label_from_title(s, ifc) for s in data["samples"]]
+        sample_line = "; ".join(briefs)
 
         raw_gids = list(set(data["element_ids"]))
         final_gids = []
@@ -125,11 +134,25 @@ def summarize_issues_for_agent(
         else:
             final_gids = raw_gids
 
-        summarized.append({
-            "title": title, 
-            "description": "\n".join(desc_lines),
-            "elementIds": list(set(final_gids))
-        })
+        summarized.append(
+            {
+                "title": title,
+                "rule_context": context,
+                "sample_line": sample_line,
+                "elementIds": list(set(final_gids)),
+            }
+        )
+
+    rc_counts = Counter(item["rule_context"] for item in summarized)
+    repeated_rc = {k for k, n in rc_counts.items() if n >= 2}
+    for item in summarized:
+        rc = item["rule_context"]
+        sl = (item.pop("sample_line") or "").strip()
+        sample_part = f"Samples: {sl}" if sl else ""
+        if rc in repeated_rc:
+            item["description"] = sample_part
+        else:
+            item["description"] = f"{rc}\n{sample_part}".strip()
 
     # Compact IDS rows first (overall spec failures), then grouped element-level summaries.
     return compact + summarized, len(verbose)

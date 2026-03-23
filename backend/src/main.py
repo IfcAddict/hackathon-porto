@@ -1,6 +1,5 @@
 import sys
 import os
-import json
 
 from rich.markup import escape
 from rich.panel import Panel
@@ -8,30 +7,17 @@ from rich.rule import Rule
 
 from src.config import GROQ_API_KEY, RSC_DIR
 from src.logging_config import configure_logging, console
-from src.ifc_utils import scan_rsc_dir, run_ifctester, parse_bcf, copy_ifc_to_output
-from src.engine import ScriptEngine
-from src.tools import init_tools
-from src.agent import build_agent, run_agent
+from src.ifc_utils import scan_rsc_dir
 from src.groq_rate_limit import GroqDailyQuotaExceeded
 from src.issue_summary import summarize_issues_for_agent
 from src.prompts import build_initial_user_message, build_review_feedback_message
-
-
-def collect_issues(files: dict, ifc_path: str) -> list[dict]:
-    """Gather issues from IDS validation and/or BCF files."""
-    issues = []
-
-    for ids_path in files["ids"]:
-        console.print(f"  [dim]Validating against:[/] {escape(os.path.basename(ids_path))}")
-        ids_issues = run_ifctester(ifc_path, ids_path)
-        issues.extend(ids_issues)
-
-    for bcf_path in files["bcf"]:
-        console.print(f"  [dim]Reading BCF:[/] {escape(os.path.basename(bcf_path))}")
-        bcf_issues = parse_bcf(bcf_path)
-        issues.extend(bcf_issues)
-
-    return issues
+from src.agent import run_agent
+from src.session_flow import (
+    build_agent_session,
+    collect_issues,
+    finalize_session_disk,
+    write_issues_json,
+)
 
 
 def print_separator():
@@ -135,7 +121,11 @@ def main():
         sys.exit(1)
 
     console.print("\n[bold]Collecting issues…[/]")
-    raw_issues = collect_issues(files, ifc_path)
+    raw_issues = collect_issues(
+        files,
+        ifc_path,
+        log_line=lambda msg: console.print(f"  [dim]{escape(msg)}[/]"),
+    )
 
     if not raw_issues:
         console.print("\n[green]No issues found[/] — the IFC file passes all validations.")
@@ -155,30 +145,27 @@ def main():
     for i, issue in enumerate(issues, 1):
         console.print(f"  [cyan]{i}.[/] {escape(issue['title'])}")
 
-    ifc_output_path = copy_ifc_to_output(ifc_path)
-    console.print(f"\n[dim]Working copy:[/] [cyan]{escape(ifc_output_path)}[/]")
+    ctx = build_agent_session(issues, merged_verbose, ifc_path, files)
+    console.print(f"\n[dim]Working copy:[/] [cyan]{escape(ctx.ifc_output_path)}[/]")
 
-    ids_path = files["ids"][0] if files["ids"] else None
-    engine = ScriptEngine(ifc_output_path)
-    init_tools(engine, ifc_output_path, ids_path)
-
-    agent = build_agent()
+    issues_json_path = write_issues_json(ctx.ifc_output_path, ctx.issues)
+    console.print(f"[dim]Issues summary (early):[/] [cyan]{escape(issues_json_path)}[/]")
 
     try:
-        review_loop(issues, agent, ifc_output_path, summarized_element_rows=merged_verbose)
+        review_loop(
+            ctx.issues,
+            ctx.agent,
+            ctx.ifc_output_path,
+            summarized_element_rows=ctx.merged_verbose,
+        )
     except GroqDailyQuotaExceeded as err:
         console.print(f"\n[red]{escape(str(err))}[/]")
         sys.exit(2)
 
-    engine.save_model(ifc_output_path)
-    
-    # Save the issues summary to a JSON file alongside the IFC
-    issues_json_path = ifc_output_path.replace('.ifc', '_issues.json')
-    with open(issues_json_path, 'w', encoding='utf-8') as f:
-        json.dump(issues, f, indent=2, ensure_ascii=False)
-        
-    console.print(f"\n[green]Final IFC saved to:[/] [cyan]{escape(ifc_output_path)}[/]")
-    console.print(f"[green]Issues summary saved to:[/] [cyan]{escape(issues_json_path)}[/]")
+    ifc_out, issues_out = finalize_session_disk(ctx)
+
+    console.print(f"\n[green]Final IFC saved to:[/] [cyan]{escape(ifc_out)}[/]")
+    console.print(f"[green]Issues summary saved to:[/] [cyan]{escape(issues_out)}[/]")
 
 
 if __name__ == "__main__":

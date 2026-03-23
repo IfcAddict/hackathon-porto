@@ -190,7 +190,7 @@ def graphql_class_search(
     """Run classSearch; server returns full match list (no GraphQL pagination args).
 
     We slice client-side into [offset : offset+limit] and attach ``_pagination`` metadata.
-    Each call re-downloads the full result set from the API — prefer ``class_reference_code``
+    Each call re-downloads the full result set from the API — prefer exact class codes
     when the code is known.
     """
     raw = graphql_post(

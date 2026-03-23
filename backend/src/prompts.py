@@ -1,3 +1,5 @@
+from collections import Counter
+
 SYSTEM_PROMPT = """You are an expert BIM (Building Information Modeling) engineer and IFC specialist. Your job is to fix issues found in an IFC file by writing Python scripts that use the ifcopenshell library.
 
 ## How you work
@@ -33,6 +35,7 @@ You do not need `import ifcopenshell` at the start of every script; `model` and 
 - After applying fixes, use the `revalidate_ifc` tool to check if issues are resolved.
 - If you cannot fix an issue, clearly state why and move on. Do not loop indefinitely.
 - Keep track of what you have done so you can report it clearly.
+- For **grouped** element-level issues (titles like `IfcWall ×12 — …`), the failing attribute or facet is named in the IDS/BCF rule text. Inspect it, then apply a **bulk** fix over all matching instances (e.g. `model.by_type("IfcWall")` and related patterns). Call `revalidate_ifc` after substantive edits. You do **not** need every GlobalId unless you are doing a deliberate spot fix.
 
 ## Replacing incorrect values (priority order)
 
@@ -49,8 +52,8 @@ When an incidence flags a **wrong, missing, or invalid** value, infer and apply 
 When an IDS rule or fix depends on **standardized property values**, **property set names**, or **allowed enumerations** published in bSDD, follow the replacement hierarchy above: infer from the element and peers first, then use bSDD to lock in valid options:
 
 - `bsdd_list_dictionaries` — optional; discover dictionary URIs beyond the default IFC 4.3 dictionary. Use `page` / `page_size` for long lists.
-- `bsdd_get_class` — REST metadata for a class (e.g. `IfcWall`, `Pset_WallCommon`): definition, hierarchy, status.
-- `bsdd_lookup_dictionary` — GraphQL: properties for a class plus `allowedValues` when the dictionary defines them. Prefer `class_reference_code` for an exact match; for `search_text`, use `result_offset` and `max_results` (see `dictionary._pagination.has_more`).
+- `bsdd_get_class` — REST metadata: `reference_codes` and/or `class_uris` (lists; one element is fine), `page` / `page_size`, `invalid_references` per page.
+- `bsdd_lookup_dictionary` — GraphQL: `class_reference_codes` (list) with `page` / `page_size` and `invalid_references` per page, or exploration via `search_text` + `result_offset` / `max_results` (see `dictionary._pagination.has_more`).
 
 Default scope is the IFC 4.3 dictionary (`https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3`). If bSDD returns no `allowedValues` for a field, fall back to the IFC schema / ifcopenshell (e.g. entity attributes such as `PredefinedType` on IFC types).
 
@@ -127,6 +130,11 @@ Structure your final message as a clear, structured report.
 """
 
 
+def _repeated_rule_contexts(issues: list[dict]) -> dict[str, int]:
+    keys = [i["rule_context"] for i in issues if i.get("rule_context")]
+    return dict(Counter(keys))
+
+
 def format_issues_for_agent_message(
     issues: list[dict],
     *,
@@ -142,9 +150,19 @@ def format_issues_for_agent_message(
     lines: list[str] = []
     if summarized_element_rows and summarized_element_rows > 0:
         lines.append(
-            "The checker reported many similar element-level failures; they are **grouped below** by "
-            "IFC type and IDS rule context. Fix in bulk with `model.by_type(...)` — you do not need every GlobalId.\n"
+            "Element-level checker rows are **merged** below by IFC entity and identical IDS/BCF rule text; "
+            "the **×N** in each title is how many rows were merged into that task.\n"
         )
+
+    rep = _repeated_rule_contexts(issues)
+    shared = [(ctx, n) for ctx, n in rep.items() if n >= 2]
+    if shared:
+        shared.sort(key=lambda x: -x[1])
+        lines.append("**Shared IDS/BCF constraints** (each line applies to multiple tasks below):\n")
+        for ctx, n in shared:
+            lines.append(f"- **{n} tasks** — {ctx}")
+        lines.append("")
+
     lines.append(f"{intro_heading}\n")
     for i, issue in enumerate(issues, 1):
         lines.append(f"### Issue {i}: {issue['title']}")
@@ -172,17 +190,33 @@ def build_initial_user_message(
 
 
 def build_review_feedback_message(
-    fix_reviews: list[dict],
+    fix_reviews: list[dict] | None,
     human_instructions: str,
 ) -> str:
-    """Build a message with human review feedback for a follow-up agent run."""
-    lines = ["The human reviewer has provided feedback on your previous fixes:\n"]
+    """Build a message with human review feedback for a follow-up agent run.
 
-    for review in fix_reviews:
+    If ``fix_reviews`` is empty or None, only narrative instructions are sent (e.g. WebSocket
+    clients that default all groups to accept but still add free-text guidance).
+    """
+    reviews = fix_reviews or []
+    closing = (
+        "\nPlease act on this feedback. For rejected fixes, undo them or try a different approach. "
+        "For accepted fixes, leave them as they are unless the instructions say otherwise."
+    )
+
+    if not reviews:
+        return (
+            "The human reviewer has provided instructions for another pass on the model "
+            "(no per-issue accept/reject list was supplied):\n\n"
+            f"## Reviewer instructions\n{human_instructions}"
+            + closing
+        )
+
+    lines = ["The human reviewer has provided feedback on your previous fixes:\n"]
+    for review in reviews:
         status = review["status"].upper()
         lines.append(f"- **{review['title']}**: {status}")
 
     lines.append(f"\n## Reviewer instructions\n{human_instructions}")
-    lines.append("\nPlease act on this feedback. For rejected fixes, undo them or try a different approach. For accepted fixes, leave them as they are unless the instructions say otherwise.")
-
+    lines.append(closing)
     return "\n".join(lines)

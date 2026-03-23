@@ -13,8 +13,9 @@ AI agent that reads BCF issues (from IDS validation via ifctester, or directly f
    source venv/bin/activate
    ```
 
-2. Install dependencies:
+2. Install dependencies (from the `backend` folder):
    ```bash
+   cd backend
    pip install -r requirements.txt
    ```
 
@@ -30,8 +31,9 @@ AI agent that reads BCF issues (from IDS validation via ifctester, or directly f
 
 1. Place your IFC file (and optionally IDS or BCF files) in the `rsc/` folder.
 
-2. Run the agent:
+2. Run the agent (from the `backend` folder):
    ```bash
+   cd backend
    python -m src.main
    ```
 
@@ -46,6 +48,19 @@ AI agent that reads BCF issues (from IDS validation via ifctester, or directly f
    - After reviewing all groups, provide free-text instructions for another pass, or press Enter to finish
 
 5. The final IFC file is saved in `output/`.
+
+### WebSocket session server
+
+For a long-lived browser session, run the FastAPI WebSocket server from `backend`:
+
+```bash
+cd backend
+uvicorn src.server:app --host 127.0.0.1 --port 8765
+```
+
+Optional environment variables: **`IFC_AGENT_WS_HOST`** and **`IFC_AGENT_WS_PORT`** (defaults `127.0.0.1` and `8765`). Equivalent: `python -m src.server`.
+
+Connect to **`ws://127.0.0.1:8765/ws/session`**. The server writes **`output/{ifc_stem}_issues.json`** early; the client can load issues and the IFC from `output/` while the socket stays open. Send JSON messages of type `review` with optional `group_decisions` and `instructions`; empty `instructions` ends the session and saves the model.
 
 ## Project Structure
 

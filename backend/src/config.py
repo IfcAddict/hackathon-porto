@@ -8,12 +8,23 @@ load_dotenv(os.path.join(_ROOT, ".env"))
 # Groq (https://console.groq.com/docs)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+# Model for summarizing tool outputs when the main request hits TPM / payload limits (HTTP 413).
+GROQ_COMPACT_MODEL = (os.getenv("GROQ_COMPACT_MODEL") or "moonshotai/kimi-k2-instruct-0905").strip()
+GROQ_CONTEXT_COMPACT_MAX_PASSES = int(
+    (os.getenv("GROQ_CONTEXT_COMPACT_MAX_PASSES") or "5").strip() or "5"
+)
+# Re-invoke the compact model when its reply is not valid JSON (array of N strings).
+GROQ_COMPACT_PARSE_RETRIES = int((os.getenv("GROQ_COMPACT_PARSE_RETRIES") or "3").strip() or "3")
 # Groq 429 handling (https://console.groq.com/docs/rate-limits)
 GROQ_429_MAX_RETRIES = int((os.getenv("GROQ_429_MAX_RETRIES") or "64").strip() or "64")
 GROQ_429_MAX_SLEEP_SEC = float((os.getenv("GROQ_429_MAX_SLEEP_SEC") or "600").strip() or "600")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 RSC_DIR = os.path.join(_ROOT, "rsc")
 OUTPUT_DIR = os.path.join(_ROOT, "output")
+
+# WebSocket session server (see src.server)
+IFC_AGENT_WS_HOST = (os.getenv("IFC_AGENT_WS_HOST") or "127.0.0.1").strip()
+IFC_AGENT_WS_PORT = int((os.getenv("IFC_AGENT_WS_PORT") or "8765").strip() or "8765")
 
 MAX_OUTPUT_CHARS = 10_000
 
