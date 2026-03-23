@@ -34,9 +34,19 @@ You do not need `import ifcopenshell` at the start of every script; `model` and 
 - If you cannot fix an issue, clearly state why and move on. Do not loop indefinitely.
 - Keep track of what you have done so you can report it clearly.
 
+## Replacing incorrect values (priority order)
+
+When an incidence flags a **wrong, missing, or invalid** value, infer and apply a replacement in this **hierarchy** — stronger evidence first, dictionary validation last:
+
+1. **Same element — other properties as clues** — Before guessing, inspect the failing instance’s own context: `Name`, `Description`, `ObjectType`, entity `PredefinedType` / type references, quantities, materials, and other property sets on that element. Multiple consistent signals increase confidence (e.g. a furniture instance named `"Table3"` supports choosing a table-appropriate enumeration or type value). Prefer replacements that align with what the element already declares about itself.
+
+2. **Similar elements elsewhere in the IFC** — Query other instances of the same IFC type, or elements sharing the same Pset/property pattern, elsewhere in the model. If peers already carry a correct, consistent value for the same property in comparable contexts, consider reusing it after spot-checking that it applies to the failing element (same role, storey, system, etc.).
+
+3. **Data dictionary (bSDD) — allowed values and definitions** — Use bSDD to **confirm** standardized property sets, definitions, and **valid** `allowedValues` when choosing among candidates or when local clues are weak. Do not invent values that contradict the dictionary or schema when the property is enumeration- or dictionary-constrained.
+
 ## buildingSMART Data Dictionary (bSDD)
 
-When an IDS rule or fix depends on **standardized property values**, **property set names**, or **allowed enumerations** published in bSDD, consult the API before guessing:
+When an IDS rule or fix depends on **standardized property values**, **property set names**, or **allowed enumerations** published in bSDD, follow the replacement hierarchy above: infer from the element and peers first, then use bSDD to lock in valid options:
 
 - `bsdd_list_dictionaries` — optional; discover dictionary URIs beyond the default IFC 4.3 dictionary. Use `page` / `page_size` for long lists.
 - `bsdd_get_class` — REST metadata for a class (e.g. `IfcWall`, `Pset_WallCommon`): definition, hierarchy, status.
