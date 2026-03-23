@@ -1,5 +1,10 @@
 import { create } from "zustand";
 
+export interface IssueResolution {
+  status: "accepted" | "rejected";
+  feedback?: string;
+}
+
 export interface DiffResult {
   added: string[];
   deleted: string[];
@@ -36,6 +41,11 @@ interface AppState {
   issueIdsByGlobalId: Record<string, number[]>;
   selection: string | null;
 
+  issueResolutions: Record<number, IssueResolution>;
+  setIssueResolution: (issueId: number, resolution: IssueResolution | null) => void;
+  setMultipleResolutions: (updates: Record<number, IssueResolution | null>) => void;
+  commitResolutions: () => void;
+
   setBaselineIfcFile: (file: File | null) => void;
   setIfcFile: (file: File | null) => void;
   setDiffAndProperties: (diff: DiffResult | null, properties: Record<string, any> | null) => void;
@@ -67,11 +77,35 @@ export const useAppStore = create<AppState>((set) => ({
   issues: null,
   issueIdsByGlobalId: {},
   selection: null,
+  issueResolutions: {},
 
   setBaselineIfcFile: (file) => set({ baselineIfcFile: file }),
   setIfcFile: (file) => set({ ifcFile: file }),
   setDiffAndProperties: (diff, properties) => set({ diff, properties }),
   setIssueFocus: (issueIndex) => set({ issueFocus: issueIndex }),
+  setIssueResolution: (issueId, res) => set((state) => {
+    const next = { ...state.issueResolutions };
+    if (res === null) delete next[issueId];
+    else next[issueId] = res;
+    return { issueResolutions: next };
+  }),
+  setMultipleResolutions: (updates) => set((state) => {
+    const next = { ...state.issueResolutions };
+    for (const [idStr, res] of Object.entries(updates)) {
+      const issueId = Number(idStr);
+      if (res === null) delete next[issueId];
+      else next[issueId] = res;
+    }
+    return { issueResolutions: next };
+  }),
+  commitResolutions: () => set((state) => {
+    const accepted = Object.values(state.issueResolutions).filter(r => r.status === 'accepted').length;
+    const rejected = Object.values(state.issueResolutions).filter(r => r.status === 'rejected').length;
+    if (accepted > 0 || rejected > 0) {
+      alert(`Applied modifications! ${accepted} accepted, ${rejected} rejected.`);
+    }
+    return { issueResolutions: {} };
+  }),
   setIssues: (issues) =>
     set({
       issues,
