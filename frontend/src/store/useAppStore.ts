@@ -29,6 +29,8 @@ interface AppState {
   baselineIfcFile: File | null;
   /** IFC shown in the 3D viewer (e.g. from `backend/output` via poll or manual upload). */
   ifcFile: File | null;
+  idsFiles: File[];
+  bcfFiles: File[];
   /** Computed diff between baseline and ifcFile */
   diff: DiffResult | null;
   /** Extracted properties for all elements in ifcFile */
@@ -55,6 +57,8 @@ interface AppState {
 
   setBaselineIfcFile: (file: File | null) => void;
   setIfcFile: (file: File | null) => void;
+  setIdsFiles: (files: File[]) => void;
+  setBcfFiles: (files: File[]) => void;
   setDiffAndProperties: (diff: DiffResult | null, properties: Record<string, any> | null) => void;
   setIssueFocus: (issueIndex: number | null) => void;
   setIssues: (issues: IfcIssue[] | null) => void;
@@ -78,6 +82,8 @@ function buildIssueIndex(issues: IfcIssue[] | null): Record<string, number[]> {
 export const useAppStore = create<AppState>((set) => ({
   baselineIfcFile: null,
   ifcFile: null,
+  idsFiles: [],
+  bcfFiles: [],
   diff: null,
   properties: null,
   issueFocus: null,
@@ -98,6 +104,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   setBaselineIfcFile: (file) => set({ baselineIfcFile: file }),
   setIfcFile: (file) => set({ ifcFile: file }),
+  setIdsFiles: (files) => set({ idsFiles: files }),
+  setBcfFiles: (files) => set({ bcfFiles: files }),
   setDiffAndProperties: (diff, properties) => set({ diff, properties }),
   setIssueFocus: (issueIndex) => set({ issueFocus: issueIndex }),
   setIssueResolution: (issueId, res) => set((state) => {

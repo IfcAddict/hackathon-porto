@@ -26,6 +26,8 @@ export function useAgentOutputSync() {
           fetchIssuesJsonFromUrl(jsonUrl),
         ]);
         if (cancelled) return;
+        
+        // We ensure baselineIfcFile remains unmodified here.
         if (issues) {
           setIfcFile(ifcFile);
           setIssues(issues);
@@ -44,9 +46,7 @@ export function useAgentOutputSync() {
       cancelled = true;
     };
   }, [
-    agentOutputSync?.nonce,
-    agentOutputSync?.outputIfcBasename,
-    agentOutputSync?.issuesJsonBasename,
+    agentOutputSync, // Added agentOutputSync to fix lint warning and run correctly on update
     setIfcFile,
     setIssues,
   ]);

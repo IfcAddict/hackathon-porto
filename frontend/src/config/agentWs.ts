@@ -9,3 +9,7 @@ export function getAgentWebSocketUrl(): string {
   if (raw && typeof raw === "string" && raw.trim()) return raw.trim();
   return DEFAULT_WS;
 }
+
+export function getAgentApiUrl(): string {
+  return getAgentWebSocketUrl().replace("ws://", "http://").replace("/ws/session", "");
+}

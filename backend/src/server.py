@@ -7,8 +7,10 @@ import json
 import os
 import traceback
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from typing import List
+import shutil
 
 from src.config import (
     GROQ_API_KEY,
@@ -38,6 +40,8 @@ from src.session_flow import (
 )
 import src.ws_protocol as W
 
+from groq import InternalServerError
+
 app = FastAPI(title="IFC Fix Agent WebSocket")
 app.add_middleware(
     CORSMiddleware,
@@ -46,6 +50,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.post("/upload")
+async def upload_files(files: List[UploadFile] = File(...)):
+    # Clear existing files in rsc directory
+    for filename in os.listdir(RSC_DIR):
+        file_path = os.path.join(RSC_DIR, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            pass
+
+    saved_files = []
+    for file in files:
+        if not file.filename:
+            continue
+        file_path = os.path.join(RSC_DIR, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        saved_files.append(file.filename)
+    
+    return {"message": "Files uploaded successfully", "files": saved_files}
 
 
 class SessionSetupError(Exception):
@@ -177,6 +205,12 @@ async def session_socket(websocket: WebSocket):
         )
         await websocket.close()
         return
+    except InternalServerError as err:
+        await websocket.send_json(
+            {"type": W.ERROR, "code": "groq_server_error", "message": f"Groq API Server Error (Rate limit or Capacity): {err}"}
+        )
+        await websocket.close()
+        return
     except Exception:
         await websocket.send_json(
             {
@@ -263,6 +297,12 @@ async def session_socket(websocket: WebSocket):
         except GroqDailyQuotaExceeded as err:
             await websocket.send_json(
                 {"type": W.ERROR, "code": "groq_quota", "message": str(err)}
+            )
+            await websocket.close()
+            return
+        except InternalServerError as err:
+            await websocket.send_json(
+                {"type": W.ERROR, "code": "groq_server_error", "message": f"Groq API Server Error (Rate limit or Capacity): {err}"}
             )
             await websocket.close()
             return

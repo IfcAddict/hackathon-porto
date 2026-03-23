@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { getAgentWebSocketUrl } from "../config/agentWs";
+import { getAgentWebSocketUrl, getAgentApiUrl } from "../config/agentWs";
 import { WS, type ServerMessage } from "../services/agentProtocol";
 import { useAppStore, type IfcIssue, type IssueResolution } from "../store/useAppStore";
 
@@ -112,13 +112,36 @@ export function useAgentSession() {
     [closeSocket]
   );
 
-  const startAgentRun = useCallback(() => {
+  const startAgentRun = useCallback(async () => {
     closeSocket();
-    useAppStore.getState().setIfcFile(null);
-    useAppStore.getState().setIssues(null);
     setErrorMessage(null);
     setLastReport(null);
     setPhase("connecting");
+
+    const state = useAppStore.getState();
+    if (state.ifcFile || state.idsFiles.length > 0 || state.bcfFiles.length > 0) {
+      const formData = new FormData();
+      if (state.ifcFile) formData.append("files", state.ifcFile);
+      state.idsFiles.forEach(f => formData.append("files", f));
+      state.bcfFiles.forEach(f => formData.append("files", f));
+
+      try {
+        const res = await fetch(`${getAgentApiUrl()}/upload`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          throw new Error(`Upload failed: ${res.statusText}`);
+        }
+      } catch (err) {
+        setPhase("error");
+        setErrorMessage(err instanceof Error ? err.message : "File upload failed.");
+        return;
+      }
+    }
+
+    useAppStore.getState().setIfcFile(null);
+    useAppStore.getState().setIssues(null);
 
     const url = getAgentWebSocketUrl();
     let ws: WebSocket;

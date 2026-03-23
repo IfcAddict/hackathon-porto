@@ -216,7 +216,7 @@ const IssueTreeNode: React.FC<{
 };
 
 export const IssuesSidebar: React.FC = () => {
-  const { issues, issueFocus, setIssueFocus, setSelection, issueResolutions } = useAppStore();
+  const { issues, issueFocus, setIssueFocus, setSelection, issueResolutions, ifcFile, idsFiles, bcfFiles } = useAppStore();
   const {
     phase: agentPhase,
     errorMessage: agentError,
@@ -232,6 +232,9 @@ export const IssuesSidebar: React.FC = () => {
   const agentBusy =
     agentPhase === "connecting" || agentPhase === "running" || agentPhase === "finalizing";
   const canSendReview = agentPhase === "awaiting_review";
+
+  const hasRequiredFiles = ifcFile !== null && (idsFiles.length > 0 || bcfFiles.length > 0);
+  const showRunButton = canStartAgent;
 
   const treeRoots = useMemo(() => issues ? buildIssueTree(issues) : [], [issues]);
 
@@ -250,18 +253,18 @@ export const IssuesSidebar: React.FC = () => {
   const rejectedCount = Object.values(issueResolutions).filter(r => r.status === 'rejected').length;
   const totalStaged = acceptedCount + rejectedCount;
 
-  const showRunButton = canStartAgent;
-
   const agentPanel = (
     <div className="flex flex-col items-center justify-center py-2 w-full space-y-3">
       {showRunButton && (
         <button
           type="button"
+          disabled={!canStartAgent || !hasRequiredFiles}
+          title={!hasRequiredFiles ? "Please upload an IFC file and at least one IDS or BCF file first." : ""}
           onClick={() => {
             if (agentPhase === "complete") resetComplete();
             startAgentRun();
           }}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20 transition-all"
+          className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:pointer-events-none text-white shadow-lg shadow-violet-500/20 transition-all"
         >
           <PlayCircle size={18} />
           Run fix agent
