@@ -17,7 +17,7 @@ const fmt = (v: unknown) => {
 };
 
 export const PropertyPanel: React.FC = () => {
-  const { selection, setSelection, properties, diff, issueFocus, issues, setIssueFocus } = useAppStore();
+  const { selection, selectionGroup, setSelection, setSelectionGroup, properties, diff, issueFocus, issues, setIssueFocus } = useAppStore();
 
   const focusedIssue = issueFocus !== null && issues ? issues[issueFocus] : null;
 
@@ -48,7 +48,7 @@ export const PropertyPanel: React.FC = () => {
   const { aggregatedDiffs, commonProps } = useMemo(() => {
     if (!focusedIssue || !diff || !properties) return { aggregatedDiffs: [], commonProps: [] };
     
-    const propChanges: Record<string, Map<string, { old: any, new: any, count: number }>> = {};
+    const propChanges: Record<string, Map<string, { old: any, new: any, count: number, elementIds: string[], elementTypes: Set<string> }>> = {};
     const propValuesCount: Record<string, Map<string, { val: any, count: number }>> = {};
 
     focusedIssue.elementIds.forEach(gid => {
@@ -59,9 +59,13 @@ export const PropertyPanel: React.FC = () => {
           if (!propChanges[k]) propChanges[k] = new Map();
           const changeHash = `${JSON.stringify(v.old)} -> ${JSON.stringify(v.new)}`;
           if (!propChanges[k].has(changeHash)) {
-            propChanges[k].set(changeHash, { old: v.old, new: v.new, count: 0 });
+            propChanges[k].set(changeHash, { old: v.old, new: v.new, count: 0, elementIds: [], elementTypes: new Set() });
           }
-          propChanges[k].get(changeHash)!.count++;
+          const changeRef = propChanges[k].get(changeHash)!;
+          changeRef.count++;
+          changeRef.elementIds.push(gid);
+          const cname = properties[gid]?.constructor?.name;
+          changeRef.elementTypes.add((cname && cname !== "Object") ? cname : "Element");
         });
       }
 
@@ -163,48 +167,64 @@ export const PropertyPanel: React.FC = () => {
             <div className="flex flex-col gap-4">
               {/* Modifications */}
               {displayProps.some(([k]) => modifications?.attributes?.[k]) && (
-                <div className="flex flex-col gap-1.5">
-                  {displayProps.map(([k, v]) => {
-                    const mod = modifications?.attributes?.[k];
-                    if (!mod) return null;
-                    return (
-                      <div key={k} className="p-0 rounded-md border border-slate-700/60 overflow-hidden bg-slate-800/40 shadow-sm flex flex-col md:flex-row items-stretch">
-                        <div className="bg-slate-800/60 px-3 py-1.5 md:w-1/4 md:border-r border-b md:border-b-0 border-slate-700/60 font-medium text-slate-300 text-[11px] flex justify-between items-center gap-2 shrink-0">
-                          <span className="truncate" title={k}>{k}</span>
-                          <span className="text-[9px] uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">Mod</span>
-                        </div>
-                        <div className="font-mono text-[11px] flex flex-1">
-                          <div className="flex-1 flex items-center bg-[#3b1212]/30 text-[#ff8b8b] border-r border-red-900/30">
-                            <div className="w-6 shrink-0 text-center border-r border-red-900/30 text-red-500/50 select-none py-1.5">-</div>
-                            <div className="py-1.5 px-2 break-all">{fmt(mod.old)}</div>
-                          </div>
-                          <div className="flex-1 flex items-center bg-[#0e2a18]/30 text-[#85e89d]">
-                            <div className="w-6 shrink-0 text-center border-r border-emerald-900/30 text-emerald-500/50 select-none py-1.5">+</div>
-                            <div className="py-1.5 px-2 break-all">{fmt(mod.new)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div>
+                  <div className="text-xs font-semibold text-slate-300 mb-2">
+                    Modifications
+                  </div>
+                  <div className="w-full border border-slate-700/60 rounded-md overflow-x-auto bg-slate-800/20 custom-scrollbar">
+                    <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+                      <thead>
+                        <tr className="bg-slate-800/60 border-b border-slate-700/60 text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                          <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/4">IFC Classes / Entities</th>
+                          <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/4">Property / Attribute</th>
+                          <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/4">Before</th>
+                          <th className="py-2.5 px-3 w-1/4">After</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/40">
+                        {displayProps.map(([k, v]) => {
+                          const mod = modifications?.attributes?.[k];
+                          if (!mod) return null;
+                          return (
+                            <tr key={k} className="hover:bg-slate-800/40 transition-colors group">
+                              {/* Element */}
+                              <td className="py-2.5 px-3 align-top border-r border-slate-700/60 font-medium text-slate-300">
+                                {(currentProps?.constructor?.name && currentProps.constructor.name !== "Object") ? currentProps.constructor.name : "Element"}
+                              </td>
+
+                              {/* Property */}
+                              <td className="py-2.5 px-3 align-top border-r border-slate-700/60">
+                                <span className="font-medium text-slate-300 whitespace-normal">{k}</span>
+                              </td>
+                              
+                              {/* Before */}
+                              <td className="py-2.5 px-3 align-top border-r border-slate-700/60 font-mono text-[#ff8b8b] bg-[#3b1212]/10 whitespace-normal min-w-[150px]">
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-red-500/50 select-none shrink-0">-</span>
+                                  <span className="break-all">{fmt(mod.old)}</span>
+                                </div>
+                              </td>
+
+                              {/* After */}
+                              <td className="py-2.5 px-3 align-top font-mono text-[#85e89d] bg-[#0e2a18]/10 whitespace-normal min-w-[150px]">
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-emerald-500/50 select-none shrink-0">+</span>
+                                  <span className="break-all">{fmt(mod.new)}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
-              {/* Normal properties */}
-              <div className="flex flex-wrap gap-2">
-                {displayProps.map(([k, v]) => {
-                  if (modifications?.attributes?.[k]) return null;
-                  return (
-                    <div key={k} className="flex items-baseline gap-1.5 px-2 py-1 rounded-md border text-[11px] bg-slate-800/40 border-slate-700/50 hover:bg-slate-700/40 transition-colors">
-                      <span className="font-medium text-slate-400 uppercase tracking-wider">{k}:</span>
-                      <span className="text-slate-200 font-mono break-all">{fmt(v)}</span>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
           ) : (
             <div className="text-center text-slate-500 text-sm py-8">
-              No properties found for this element.
+              No modifications found for this element.
             </div>
           )}
         </div>
@@ -221,9 +241,25 @@ export const PropertyPanel: React.FC = () => {
             <Info size={16} className="text-violet-400" />
             Group Properties & Changes
           </h3>
-          <span className="text-xs font-mono text-slate-400 bg-slate-900/50 px-2 py-0.5 rounded-md border border-slate-700/50">
-            {focusedIssue?.elementIds.length} element{focusedIssue?.elementIds.length === 1 ? "" : "s"}
-          </span>
+          {focusedIssue && (
+            <button 
+              onClick={() => {
+                if (selectionGroup && selectionGroup.length === focusedIssue.elementIds.length) {
+                  setSelectionGroup(null);
+                } else {
+                  setSelectionGroup(focusedIssue.elementIds);
+                }
+              }}
+              className={`text-[13px] font-bold px-3 py-1.5 rounded-md border-2 transition-colors shadow-sm ${
+                selectionGroup && selectionGroup.length === focusedIssue.elementIds.length 
+                  ? "bg-violet-600/30 border-violet-500/70 text-violet-100" 
+                  : "bg-slate-800 border-slate-600/80 text-white hover:border-slate-500 hover:bg-slate-700"
+              }`}
+              title={selectionGroup && selectionGroup.length === focusedIssue.elementIds.length ? "Deselect elements in 3D" : "Select all elements in 3D"}
+            >
+              [ {focusedIssue.elementIds.length} element{focusedIssue.elementIds.length === 1 ? "" : "s"} ]
+            </button>
+          )}
         </div>
         <button onClick={() => setIssueFocus(null)} className="text-slate-400 hover:text-slate-200 transition-colors bg-slate-800 hover:bg-slate-700 p-1.5 rounded-md border border-transparent hover:border-slate-600/50">
           <X size={16} />
@@ -231,54 +267,87 @@ export const PropertyPanel: React.FC = () => {
       </div>
 
       <div className="p-4 overflow-y-auto min-h-0 custom-scrollbar">
-        {aggregatedDiffs.length === 0 && commonProps.length === 0 && (
-          <div className="text-center text-slate-500 text-sm py-8">
-            No properties or common modifications found for this group.
+        {aggregatedDiffs.length === 0 && (
+          <div className="text-center text-slate-500 text-sm py-8 pt-6">
+            No modifications found for this group.
           </div>
         )}
 
         <div className="flex flex-col gap-4">
           {aggregatedDiffs.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              {aggregatedDiffs.map(({ key, changes }) => (
-                <div key={key} className="p-0 rounded-md border border-slate-700/60 overflow-hidden bg-slate-800/40 shadow-sm flex flex-col md:flex-row items-stretch relative">
-                  <div className="bg-slate-800/60 px-3 py-1.5 md:w-1/4 md:border-r border-b md:border-b-0 border-slate-700/60 font-medium text-slate-300 text-[11px] flex justify-between items-center gap-2 shrink-0">
-                    <span className="truncate" title={key}>{key}</span>
-                    <span className="text-[9px] uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">Mod</span>
-                  </div>
-                  
-                  <div className="flex-1 flex flex-col divide-y divide-slate-700/40">
-                    {changes.map((change, i) => (
-                      <div key={i} className="flex flex-col sm:flex-row relative">
-                        <div className="absolute right-2 top-1.5 text-[9px] text-slate-500 font-mono bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-700/50 z-10">
-                          {change.count} el{change.count === 1 ? "" : "s"}
-                        </div>
-                        <div className="font-mono text-[11px] flex flex-1">
-                          <div className="flex-1 flex items-center bg-[#3b1212]/30 text-[#ff8b8b] border-r border-red-900/30 min-h-[32px]">
-                            <div className="w-6 shrink-0 text-center border-r border-red-900/30 text-red-500/50 select-none py-1.5">-</div>
-                            <div className="py-1.5 px-2 break-all pr-12">{fmt(change.old)}</div>
-                          </div>
-                          <div className="flex-1 flex items-center bg-[#0e2a18]/30 text-[#85e89d] min-h-[32px]">
-                            <div className="w-6 shrink-0 text-center border-r border-emerald-900/30 text-emerald-500/50 select-none py-1.5">+</div>
-                            <div className="py-1.5 px-2 break-all pr-12">{fmt(change.new)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+            <div>
+              <div className="w-full border border-slate-700/60 rounded-md overflow-x-auto bg-slate-800/20 custom-scrollbar">
+                <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+                  <thead>
+                    <tr className="bg-slate-800/60 border-b border-slate-700/60 text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/5">IFC Classes/Entities</th>
+                      <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/5">Property/Attribute</th>
+                      <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/5">Before</th>
+                      <th className="py-2.5 px-3 border-r border-slate-700/60 w-1/5">After</th>
+                      <th className="py-2.5 px-3 w-1/5">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/40">
+                    {aggregatedDiffs.map(({ key, changes }) => (
+                      <React.Fragment key={key}>
+                        {changes.map((change, i) => (
+                          <tr key={`${key}-${i}`} className="hover:bg-slate-800/40 transition-colors group">
+                            {/* Element */}
+                            <td className="py-2.5 px-3 align-top border-r border-slate-700/60 font-medium text-slate-300">
+                              {Array.from(change.elementTypes).join(", ")}
+                            </td>
 
-          {commonProps.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-1">
-              {commonProps.map(([k, v]) => (
-                <div key={k} className="flex items-baseline gap-1.5 px-2 py-1 rounded-md border text-[11px] bg-slate-800/40 border-slate-700/50 hover:bg-slate-700/40 transition-colors">
-                  <span className="font-medium text-slate-400 uppercase tracking-wider">{k}:</span>
-                  <span className="text-slate-200 font-mono break-all">{fmt(v)}</span>
-                </div>
-              ))}
+                            {/* Property */}
+                            <td className="py-2.5 px-3 align-top border-r border-slate-700/60">
+                              <span className="font-medium text-slate-300 whitespace-normal">{key}</span>
+                            </td>
+                            
+                            {/* Before */}
+                            <td className="py-2.5 px-3 align-top border-r border-slate-700/60 font-mono text-[#ff8b8b] bg-[#3b1212]/10 whitespace-normal min-w-[150px]">
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-red-500/50 select-none shrink-0">-</span>
+                                <span className="break-all">{fmt(change.old)}</span>
+                              </div>
+                            </td>
+
+                            {/* After */}
+                            <td className="py-2.5 px-3 align-top border-r border-slate-700/60 font-mono text-[#85e89d] bg-[#0e2a18]/10 whitespace-normal min-w-[150px]">
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-emerald-500/50 select-none shrink-0">+</span>
+                                <span className="break-all">{fmt(change.new)}</span>
+                              </div>
+                            </td>
+
+                            {/* Count */}
+                            <td className="py-1.5 px-2 align-top">
+                              <button
+                                onClick={() => {
+                                  const isSelected = selectionGroup && 
+                                     selectionGroup.length === change.elementIds.length && 
+                                     selectionGroup.every(id => change.elementIds.includes(id));
+                                  if (isSelected) {
+                                    setSelectionGroup(null);
+                                  } else {
+                                    setSelectionGroup(change.elementIds);
+                                  }
+                                }}
+                                className={`flex items-center justify-center gap-2 px-2 py-1.5 rounded-md border-2 transition-colors w-full shadow-sm ${
+                                  selectionGroup && selectionGroup.length === change.elementIds.length && selectionGroup.every(id => change.elementIds.includes(id))
+                                    ? "bg-violet-600/30 border-violet-500/70 text-violet-100"
+                                    : "bg-slate-700/50 border-slate-600/80 text-white hover:border-slate-500 hover:bg-slate-700"
+                                }`}
+                                title="Highlight these elements in the 3D viewer"
+                              >
+                                <span className="text-[13px] font-bold whitespace-nowrap">[ {change.count} elements ]</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

@@ -42,6 +42,8 @@ interface AppState {
   /** GlobalId → issue ids that reference this element. */
   issueIdsByGlobalId: Record<string, number[]>;
   selection: string | null;
+  /** GlobalIds of an explicitly selected sub-group of elements (e.g. from property diff panel) */
+  selectionGroup: string[] | null;
 
   /** Set by the agent WebSocket when output IFC + issues should be loaded from `/output/`. */
   agentOutputSync: {
@@ -63,6 +65,7 @@ interface AppState {
   setIssueFocus: (issueIndex: number | null) => void;
   setIssues: (issues: IfcIssue[] | null) => void;
   setSelection: (globalId: string | null) => void;
+  setSelectionGroup: (globalIds: string[] | null) => void;
 }
 
 function buildIssueIndex(issues: IfcIssue[] | null): Record<string, number[]> {
@@ -90,6 +93,7 @@ export const useAppStore = create<AppState>((set) => ({
   issues: null,
   issueIdsByGlobalId: {},
   selection: null,
+  selectionGroup: null,
   agentOutputSync: null,
   issueResolutions: {},
 
@@ -107,7 +111,7 @@ export const useAppStore = create<AppState>((set) => ({
   setIdsFiles: (files) => set({ idsFiles: files }),
   setBcfFiles: (files) => set({ bcfFiles: files }),
   setDiffAndProperties: (diff, properties) => set({ diff, properties }),
-  setIssueFocus: (issueIndex) => set({ issueFocus: issueIndex }),
+  setIssueFocus: (issueIndex) => set({ issueFocus: issueIndex, selectionGroup: null }),
   setIssueResolution: (issueId, res) => set((state) => {
     const next = { ...state.issueResolutions };
     if (res === null) delete next[issueId];
@@ -128,6 +132,8 @@ export const useAppStore = create<AppState>((set) => ({
       issues,
       issueIdsByGlobalId: buildIssueIndex(issues),
       issueFocus: null,
+      selectionGroup: null,
     }),
-  setSelection: (globalId) => set({ selection: globalId }),
+  setSelection: (globalId) => set({ selection: globalId, selectionGroup: null }),
+  setSelectionGroup: (globalIds) => set({ selectionGroup: globalIds, selection: null }),
 }));

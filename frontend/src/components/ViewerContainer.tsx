@@ -5,8 +5,13 @@ import { useAppStore } from "../store/useAppStore";
 
 function issueFocusGlobalIds(
   issueFocus: number | null,
-  issues: { elementIds: string[] }[] | null
+  issues: { elementIds: string[] }[] | null,
+  selectionGroup: string[] | null
 ): { ids: string[] | null; colorHex: string; isolateRest: boolean } {
+  if (selectionGroup && selectionGroup.length > 0) {
+    return { ids: selectionGroup, colorHex: "#3b82f6", isolateRest: true }; // blue, isolate element group
+  }
+
   if (issueFocus !== null && issues && issues[issueFocus]) {
     return { ids: issues[issueFocus].elementIds, colorHex: "#a855f7", isolateRest: true }; // violet, isolate elements
   }
@@ -87,7 +92,7 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
         await adapter.loadModel(modelFile);
         if (stale()) return;
         const st = useAppStore.getState();
-        const { ids, colorHex, isolateRest } = issueFocusGlobalIds(st.issueFocus, st.issues);
+        const { ids, colorHex, isolateRest } = issueFocusGlobalIds(st.issueFocus, st.issues, st.selectionGroup);
         await adapter.refreshIsolate(ids, colorHex, isolateRest, stale);
       } catch (e: any) {
         console.error("Failed to load IFC", e);
@@ -104,6 +109,7 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
 
   const issueFocus = useAppStore((state) => state.issueFocus);
   const issues = useAppStore((state) => state.issues);
+  const selectionGroup = useAppStore((state) => state.selectionGroup);
 
   useEffect(() => {
     if (!adapter) return;
@@ -111,13 +117,13 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
     const myGen = ++isolateGenRef.current;
     const stale = () => myGen !== isolateGenRef.current;
 
-    const { ids, colorHex, isolateRest } = issueFocusGlobalIds(issueFocus, issues);
+    const { ids, colorHex, isolateRest } = issueFocusGlobalIds(issueFocus, issues, selectionGroup);
 
     void adapter.refreshIsolate(ids, colorHex, isolateRest, stale);
     return () => {
       isolateGenRef.current++;
     };
-  }, [adapter, issueFocus, issues]);
+  }, [adapter, issueFocus, issues, selectionGroup]);
 
   return (
     <div className="relative w-full h-full bg-slate-900 overflow-hidden">
