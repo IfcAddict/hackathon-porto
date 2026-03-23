@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useAppStore, type IfcIssue } from "../store/useAppStore";
 import { useAgentSession } from "../hooks/useAgentSession";
-import { getAgentWebSocketUrl } from "../config/agentWs";
 
 function issueRowTitle(issue: IfcIssue, hasChildren: boolean, max = 65) {
   let display = issue.title;
@@ -216,27 +215,6 @@ const IssueTreeNode: React.FC<{
   );
 };
 
-function agentPhaseLabel(phase: string): string {
-  switch (phase) {
-    case "idle":
-      return "Idle";
-    case "connecting":
-      return "Connecting…";
-    case "running":
-      return "Agent running…";
-    case "awaiting_review":
-      return "Ready for your review";
-    case "finalizing":
-      return "Saving…";
-    case "complete":
-      return "Session complete";
-    case "error":
-      return "Error";
-    default:
-      return phase;
-  }
-}
-
 export const IssuesSidebar: React.FC = () => {
   const { issues, issueFocus, setIssueFocus, setSelection, issueResolutions } = useAppStore();
   const {
@@ -272,76 +250,72 @@ export const IssuesSidebar: React.FC = () => {
   const rejectedCount = Object.values(issueResolutions).filter(r => r.status === 'rejected').length;
   const totalStaged = acceptedCount + rejectedCount;
 
+  const showRunButton = canStartAgent;
+
   const agentPanel = (
-    <div className="rounded-lg border border-slate-700/80 bg-slate-900/60 p-2.5 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-          Backend agent
-        </span>
-        {agentBusy && <Loader2 className="w-3.5 h-3.5 text-violet-400 animate-spin shrink-0" />}
-      </div>
-      <p className="text-[10px] text-slate-500 leading-snug">
-        Start the Python WebSocket server first:{" "}
-        <code className="text-slate-400 break-all">{`uvicorn src.server:app --host 127.0.0.1`}</code>
-        <span className="block mt-1">
-          URL: <code className="text-slate-400 break-all">{getAgentWebSocketUrl()}</code>
-        </span>
-      </p>
-      <button
-        type="button"
-        disabled={!canStartAgent}
-        onClick={() => {
-          if (agentPhase === "complete") resetComplete();
-          startAgentRun();
-        }}
-        className="w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-semibold bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:pointer-events-none text-white"
-      >
-        <PlayCircle size={16} />
-        Run fix agent
-      </button>
-      <div className="text-[10px] text-slate-400 flex items-center gap-1.5 min-h-[1rem]">
-        <span className="text-slate-500 shrink-0">Status:</span>
-        <span className="text-slate-300">{agentPhaseLabel(agentPhase)}</span>
-      </div>
-      {agentError && (
-        <div className="flex gap-1.5 text-[10px] text-red-300 bg-red-950/40 border border-red-900/50 rounded p-2">
-          <AlertCircle size={14} className="shrink-0 mt-0.5" />
-          <span className="leading-snug break-words">{agentError}</span>
+    <div className="flex flex-col items-center justify-center py-2 w-full space-y-3">
+      {showRunButton && (
+        <button
+          type="button"
+          onClick={() => {
+            if (agentPhase === "complete") resetComplete();
+            startAgentRun();
+          }}
+          className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-md text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20 transition-all"
+        >
+          <PlayCircle size={18} />
+          Run fix agent
+        </button>
+      )}
+
+      {agentBusy && (
+        <div className="flex flex-col items-center justify-center gap-3 py-4 text-violet-400">
+          <Loader2 className="w-8 h-8 animate-spin" />
+          <span className="text-xs font-medium">Agent is working...</span>
         </div>
       )}
+
+      {agentError && (
+        <div className="flex gap-2 text-xs text-red-300 bg-red-950/40 border border-red-900/50 rounded-lg p-3 w-full">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
+          <span className="leading-relaxed break-words">{agentError}</span>
+        </div>
+      )}
+
       {agentPhase === "complete" && (
-        <div className="space-y-2">
-          <p className="text-[10px] text-emerald-400/90 leading-snug">
-            Output IFC and <code className="text-emerald-300/80">*_issues.json</code> saved. The viewer
-            refreshes automatically when files change.
+        <div className="space-y-3 w-full">
+          <p className="text-xs text-emerald-400/90 leading-relaxed text-center">
+            Output IFC and <code className="text-emerald-300/80">*_issues.json</code> saved.
           </p>
           <button
             type="button"
             onClick={resetComplete}
-            className="w-full py-1.5 rounded text-[10px] font-medium border border-slate-600 text-slate-300 hover:bg-slate-800"
+            className="w-full py-2 rounded text-xs font-medium border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors"
           >
             Dismiss
           </button>
         </div>
       )}
+
       {lastReport && agentPhase === "awaiting_review" && (
-        <details className="text-[10px] border border-slate-700/60 rounded-md overflow-hidden">
-          <summary className="cursor-pointer px-2 py-1.5 bg-slate-800/50 text-slate-400 hover:text-slate-200">
+        <details className="text-xs border border-slate-700/60 rounded-md overflow-hidden w-full">
+          <summary className="cursor-pointer px-3 py-2 bg-slate-800/50 text-slate-400 hover:text-slate-200 transition-colors">
             Latest agent report
           </summary>
-          <pre className="max-h-36 overflow-auto p-2 text-slate-500 whitespace-pre-wrap break-words font-mono leading-relaxed">
+          <pre className="max-h-48 overflow-auto p-3 text-slate-500 whitespace-pre-wrap break-words font-mono leading-relaxed">
             {lastReport}
           </pre>
         </details>
       )}
+
       {canSendReview && (
-        <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800">
+        <div className="flex flex-col gap-2 w-full">
           <button
             type="button"
             onClick={finishSession}
-            className="w-full flex items-center justify-center gap-2 py-1.5 rounded-md text-[10px] font-medium border border-slate-600 text-slate-300 hover:bg-slate-800"
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-medium border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors"
           >
-            <Save size={12} />
+            <Save size={14} />
             Finish session (save, no more passes)
           </button>
         </div>
@@ -349,16 +323,10 @@ export const IssuesSidebar: React.FC = () => {
     </div>
   );
 
-  if (!issues || issues.length === 0) {
+  if (agentPhase !== "awaiting_review") {
     return (
-      <aside className="w-72 shrink-0 border-r border-slate-700 bg-slate-950 flex flex-col text-slate-400 text-sm p-3 gap-3 min-h-0">
-        <h2 className="text-slate-200 font-semibold text-sm">Issues</h2>
+      <aside className="w-72 shrink-0 border-r border-slate-700 bg-slate-950 flex flex-col justify-center items-center p-4 min-h-0 text-slate-200">
         {agentPanel}
-        <p className="text-xs leading-relaxed text-slate-500">
-          Output IFC and <code className="text-slate-500">*_issues.json</code> load when the agent reports{" "}
-          <span className="text-slate-400">ready for review</span> over the WebSocket (not from folder polling).
-          Baseline IFC still syncs from <code className="text-slate-500">backend/rsc</code>.
-        </p>
       </aside>
     );
   }
@@ -370,7 +338,7 @@ export const IssuesSidebar: React.FC = () => {
           <div>
             <h2 className="font-semibold text-sm text-slate-100">Issues</h2>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {issues.length} validation task{issues.length === 1 ? "" : "s"}
+              {issues ? issues.length : 0} validation task{issues?.length === 1 ? "" : "s"}
             </p>
           </div>
           {issueFocus !== null && (
@@ -387,23 +355,25 @@ export const IssuesSidebar: React.FC = () => {
         {agentPanel}
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0 p-2">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide mb-1.5 px-1 text-violet-300">
-          <ListTree size={14} className="text-violet-400" />
-          Tasks (ids)
+      {issues && issues.length > 0 && (
+        <div className="flex-1 overflow-y-auto min-h-0 p-2">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide mb-1.5 px-1 text-violet-300">
+            <ListTree size={14} className="text-violet-400" />
+            Tasks (ids)
+          </div>
+          <div className="space-y-0.5">
+            {treeRoots.map((root) => (
+              <IssueTreeNode
+                key={root.issue.id}
+                node={root}
+                depth={0}
+                issueFocus={issueFocus}
+                onIssuePick={onIssuePick}
+              />
+            ))}
+          </div>
         </div>
-        <div className="space-y-0.5">
-          {treeRoots.map((root) => (
-            <IssueTreeNode
-              key={root.issue.id}
-              node={root}
-              depth={0}
-              issueFocus={issueFocus}
-              onIssuePick={onIssuePick}
-            />
-          ))}
-        </div>
-      </div>
+      )}
 
       {totalStaged > 0 && (
         <div className="p-3 border-t border-slate-800 shrink-0 bg-slate-900 flex flex-col gap-2">
