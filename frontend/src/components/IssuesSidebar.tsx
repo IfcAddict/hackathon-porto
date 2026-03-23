@@ -15,9 +15,25 @@ import { useAppStore, type IfcIssue } from "../store/useAppStore";
 import { useAgentSession } from "../hooks/useAgentSession";
 import { getAgentWebSocketUrl } from "../config/agentWs";
 
-function issueRowTitle(title: string, max = 52) {
-  if (title.length <= max) return title;
-  return `${title.slice(0, max)}…`;
+function issueRowTitle(issue: IfcIssue, hasChildren: boolean, max = 65) {
+  let display = issue.title;
+  
+  if (hasChildren && issue.description) {
+    const lines = issue.description.split('\n');
+    const ruleLine = lines.find(l => l.trim().startsWith('- '));
+    if (ruleLine) {
+      // Remove the "- " prefix and the "(XXX failures)" suffix
+      display = ruleLine.replace(/^\s*-\s*/, '').replace(/\s*\(\d+\s*failures\)/i, '').trim();
+    } else if (lines.length > 0 && lines[0].length > 10) {
+      display = lines[0].trim();
+    }
+  } else if (!hasChildren && display.includes(' — ')) {
+    // For children, show just the entity part, e.g. "IfcSpaceType ×102"
+    display = display.split(' — ')[0].trim();
+  }
+
+  if (display.length <= max) return display;
+  return `${display.slice(0, max)}…`;
 }
 
 interface IssueNode {
@@ -142,7 +158,7 @@ const IssueTreeNode: React.FC<{
                 {resolution?.status === 'rejected' && <span className="text-[9px] uppercase font-bold text-red-400 bg-red-400/10 px-1 rounded border border-red-500/20 shrink-0">Rejected</span>}
               </div>
               <span className={`block font-sans text-[11px] mt-0.5 leading-snug ${resolution?.status === 'rejected' ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
-                {issueRowTitle(issue.title)}
+                {issueRowTitle(issue, hasChildren)}
               </span>
               <span className="block text-[10px] text-slate-500 mt-0.5">
                 {issue.elementIds.length} element{issue.elementIds.length === 1 ? "" : "s"}

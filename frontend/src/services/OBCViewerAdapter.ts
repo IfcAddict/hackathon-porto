@@ -217,19 +217,17 @@ export class OBCViewerAdapter implements ViewerAdapter {
     
     if (!fragments.initialized) return;
 
-    // Reset all highlights
+    // Reset all highlights and show everything first (crucial for isolate to work properly between clicks)
     await fragments.resetHighlight(undefined);
+    await hider.set(true);
 
-    // If there's no list of IDs to focus on, show everything
+    // If there's no list of IDs to focus on, we already showed everything
     if (!globalIds || globalIds.length === 0) {
-      await hider.set(true);
       return;
     }
 
     const focusMap = await fragments.guidsToModelIdMap(globalIds);
     if (!focusMap || Object.keys(focusMap).length === 0) {
-      // If none of the IDs exist in geometry, show everything
-      await hider.set(true);
       return;
     }
 
