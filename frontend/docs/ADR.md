@@ -83,7 +83,7 @@ The Vite plugin `ifc-dirs` exposes:
 - `GET /api/ifc-meta` — JSON `{ baseline, current }` with first `.ifc` in `backend/rsc` and matching basename in `backend/output` (mtime for change detection)
 - `GET /rsc/:file.ifc` and `GET /output/:file.ifc` — raw IFC bytes
 
-The hook `usePollBackendIfcFiles` polls `/api/ifc-meta` and updates `baselineIfcFile` / `currentIfcFile` in the store when files change. This replaces any older “left/right viewer” auto-load wording; it is **one mechanism for two input files**, not two viewports.
+The hook `usePollBackendIfcFiles` polls `/api/ifc-meta` and updates **`baselineIfcFile`** only (from `rsc/`). Output IFC and `*_issues.json` are loaded when the agent WebSocket sends `awaiting_review` or `session_complete` (`useAgentOutputSync`), using the basenames from the message.
 
 ## State shape (conceptual)
 

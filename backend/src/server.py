@@ -10,7 +10,15 @@ import traceback
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.config import GROQ_API_KEY, IFC_AGENT_WS_HOST, IFC_AGENT_WS_PORT, RSC_DIR
+from src.config import (
+    GROQ_API_KEY,
+    IFC_AGENT_SAMPLE_MODE,
+    IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME,
+    IFC_AGENT_WS_HOST,
+    IFC_AGENT_WS_PORT,
+    OUTPUT_DIR,
+    RSC_DIR,
+)
 from src.groq_rate_limit import GroqDailyQuotaExceeded
 from src.ifc_utils import scan_rsc_dir
 from src.issue_summary import summarize_issues_for_agent
@@ -18,12 +26,14 @@ from src.prompts import build_initial_user_message, build_review_feedback_messag
 from src.session_flow import (
     AgentSessionContext,
     build_agent_session,
+    build_agent_session_on_existing_output,
     collect_issues,
     finalize_session_disk,
+    invoke_agent_turn,
     issues_json_path,
     last_message_text,
+    load_grouped_issues_from_json,
     resolve_group_decisions,
-    run_agent_turn,
     write_issues_json,
 )
 import src.ws_protocol as W
@@ -45,7 +55,43 @@ class SessionSetupError(Exception):
         super().__init__(message)
 
 
+def _blocking_prepare_sample_session() -> AgentSessionContext:
+    """Reuse IFC + *_issues.json already in ``output/``; no LLM (see IFC_AGENT_SAMPLE_MODE)."""
+    base = IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME.strip()
+    if not base.lower().endswith(".ifc"):
+        base = f"{base}.ifc"
+    ifc_output_path = os.path.join(OUTPUT_DIR, base)
+    if not os.path.isfile(ifc_output_path):
+        raise SessionSetupError(
+            "sample_ifc_missing",
+            f"Sample mode: IFC not found at {ifc_output_path}. "
+            "Add the file under output/ or set IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME.",
+        )
+    issues_path = issues_json_path(ifc_output_path)
+    if not os.path.isfile(issues_path):
+        raise SessionSetupError(
+            "sample_issues_missing",
+            f"Sample mode: issues JSON not found at {issues_path}",
+        )
+    try:
+        issues = load_grouped_issues_from_json(issues_path)
+    except ValueError as err:
+        raise SessionSetupError("sample_issues_invalid", str(err)) from err
+    if not issues:
+        raise SessionSetupError("sample_issues_empty", "Sample issues JSON has no entries.")
+    files = scan_rsc_dir()
+    return build_agent_session_on_existing_output(
+        ifc_output_path,
+        issues,
+        merged_verbose=0,
+        files=files,
+        with_llm_agent=False,
+    )
+
+
 def _blocking_prepare_session() -> AgentSessionContext:
+    if IFC_AGENT_SAMPLE_MODE:
+        return _blocking_prepare_sample_session()
     if not GROQ_API_KEY:
         raise SessionSetupError(
             "missing_api_key",
@@ -123,7 +169,7 @@ async def session_socket(websocket: WebSocket):
 
     try:
         messages = await loop.run_in_executor(
-            None, run_agent_turn, ctx.agent, user_message
+            None, invoke_agent_turn, ctx, user_message
         )
     except GroqDailyQuotaExceeded as err:
         await websocket.send_json(
@@ -212,7 +258,7 @@ async def session_socket(websocket: WebSocket):
 
         try:
             messages = await loop.run_in_executor(
-                None, run_agent_turn, ctx.agent, feedback
+                None, invoke_agent_turn, ctx, feedback
             )
         except GroqDailyQuotaExceeded as err:
             await websocket.send_json(

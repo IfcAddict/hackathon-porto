@@ -4,6 +4,7 @@ export type VisualStaleCheck = () => boolean;
 export interface ViewerAdapter {
   init(container: HTMLElement): Promise<void>;
   loadModel(file: File): Promise<void>;
+  unloadModel(): Promise<void>;
   highlightElements(
     globalIds: string[],
     colorHex: string,

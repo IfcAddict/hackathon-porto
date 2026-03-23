@@ -41,10 +41,17 @@ interface AppState {
   issueIdsByGlobalId: Record<string, number[]>;
   selection: string | null;
 
+  /** Set by the agent WebSocket when output IFC + issues should be loaded from `/output/`. */
+  agentOutputSync: {
+    outputIfcBasename: string;
+    issuesJsonBasename: string;
+    nonce: number;
+  } | null;
+  requestAgentOutputSync: (outputIfcBasename: string, issuesJsonBasename: string) => void;
+
   issueResolutions: Record<number, IssueResolution>;
   setIssueResolution: (issueId: number, resolution: IssueResolution | null) => void;
   setMultipleResolutions: (updates: Record<number, IssueResolution | null>) => void;
-  commitResolutions: () => void;
 
   setBaselineIfcFile: (file: File | null) => void;
   setIfcFile: (file: File | null) => void;
@@ -77,7 +84,17 @@ export const useAppStore = create<AppState>((set) => ({
   issues: null,
   issueIdsByGlobalId: {},
   selection: null,
+  agentOutputSync: null,
   issueResolutions: {},
+
+  requestAgentOutputSync: (outputIfcBasename, issuesJsonBasename) =>
+    set((state) => ({
+      agentOutputSync: {
+        outputIfcBasename,
+        issuesJsonBasename,
+        nonce: (state.agentOutputSync?.nonce ?? 0) + 1,
+      },
+    })),
 
   setBaselineIfcFile: (file) => set({ baselineIfcFile: file }),
   setIfcFile: (file) => set({ ifcFile: file }),
@@ -97,14 +114,6 @@ export const useAppStore = create<AppState>((set) => ({
       else next[issueId] = res;
     }
     return { issueResolutions: next };
-  }),
-  commitResolutions: () => set((state) => {
-    const accepted = Object.values(state.issueResolutions).filter(r => r.status === 'accepted').length;
-    const rejected = Object.values(state.issueResolutions).filter(r => r.status === 'rejected').length;
-    if (accepted > 0 || rejected > 0) {
-      alert(`Applied modifications! ${accepted} accepted, ${rejected} rejected.`);
-    }
-    return { issueResolutions: {} };
   }),
   setIssues: (issues) =>
     set({

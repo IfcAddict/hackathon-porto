@@ -69,7 +69,13 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!adapter || !modelFile) return;
+    if (!adapter) return;
+
+    if (!modelFile) {
+      setLoading(false);
+      void adapter.unloadModel();
+      return;
+    }
 
     const myGen = ++loadApplyGenRef.current;
     const stale = () => myGen !== loadApplyGenRef.current;

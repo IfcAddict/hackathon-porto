@@ -67,8 +67,52 @@ class AgentSessionContext:
     merged_verbose: int
     ifc_output_path: str
     engine: ScriptEngine
-    agent: Any
     ids_path: str | None
+    agent: Any | None = None
+
+
+def load_grouped_issues_from_json(path: str) -> list[dict]:
+    """Load grouped issues from `*_issues.json` (title, description, elementIds per row)."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError("issues JSON must be an array")
+    out: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            raise ValueError("each issue must be an object")
+        title = item.get("title")
+        description = item.get("description")
+        element_ids = item.get("elementIds")
+        if not isinstance(title, str) or not isinstance(description, str):
+            raise ValueError("each issue needs string title and description")
+        if not isinstance(element_ids, list) or not all(isinstance(x, str) for x in element_ids):
+            raise ValueError("each issue needs elementIds as a list of strings")
+        out.append({"title": title, "description": description, "elementIds": list(element_ids)})
+    return out
+
+
+def build_agent_session_on_existing_output(
+    ifc_output_path: str,
+    issues: list[dict],
+    *,
+    merged_verbose: int,
+    files: dict,
+    with_llm_agent: bool,
+) -> AgentSessionContext:
+    """Open the engine on an IFC already under output/ (no copy)."""
+    ids_path = files["ids"][0] if files["ids"] else None
+    engine = ScriptEngine(ifc_output_path)
+    init_tools(engine, ifc_output_path, ids_path)
+    agent = build_agent() if with_llm_agent else None
+    return AgentSessionContext(
+        issues=issues,
+        merged_verbose=merged_verbose,
+        ifc_output_path=ifc_output_path,
+        engine=engine,
+        ids_path=ids_path,
+        agent=agent,
+    )
 
 
 def build_agent_session(
@@ -79,17 +123,12 @@ def build_agent_session(
 ) -> AgentSessionContext:
     """Copy IFC to output, init engine/tools, build agent."""
     ifc_output_path = copy_ifc_to_output(ifc_path)
-    ids_path = files["ids"][0] if files["ids"] else None
-    engine = ScriptEngine(ifc_output_path)
-    init_tools(engine, ifc_output_path, ids_path)
-    agent = build_agent()
-    return AgentSessionContext(
-        issues=issues,
+    return build_agent_session_on_existing_output(
+        ifc_output_path,
+        issues,
         merged_verbose=merged_verbose,
-        ifc_output_path=ifc_output_path,
-        engine=engine,
-        agent=agent,
-        ids_path=ids_path,
+        files=files,
+        with_llm_agent=True,
     )
 
 
@@ -133,6 +172,22 @@ def resolve_group_decisions(
 def run_agent_turn(agent: Any, user_message: str) -> list:
     """Single agent invocation (blocking)."""
     return run_agent(agent, user_message)
+
+
+def invoke_agent_turn(ctx: AgentSessionContext, user_message: str) -> list:
+    """Run the LLM agent, or return a canned reply when ``ctx.agent`` is None (sample mode)."""
+    if ctx.agent is None:
+        from langchain_core.messages import AIMessage
+
+        return [
+            AIMessage(
+                content=(
+                    "IFC_AGENT_SAMPLE_MODE: LLM inference skipped. "
+                    "Using existing output IFC and companion *_issues.json on disk."
+                )
+            )
+        ]
+    return run_agent(ctx.agent, user_message)
 
 
 def last_message_text(messages: list) -> str:

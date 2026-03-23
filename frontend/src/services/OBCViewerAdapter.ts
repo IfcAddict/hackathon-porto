@@ -36,6 +36,8 @@ export class OBCViewerAdapter implements ViewerAdapter {
   private modelMap = new Map<string, any>();
 
   private modelId: string | null = null;
+  /** Previous IFC root in the scene (removed before loading another file to avoid stacked models). */
+  private previousModelObject: THREE.Object3D | null = null;
   private customHighlightMaterials: Record<string, THREE.MeshBasicMaterial> = {};
 
   constructor() {
@@ -121,6 +123,10 @@ export class OBCViewerAdapter implements ViewerAdapter {
     const world = Array.from(worlds.list.values())[0] as any;
     if (world) {
       const modelObject = (model as any).object || model;
+      if (this.previousModelObject) {
+        world.scene.three.remove(this.previousModelObject);
+      }
+      this.previousModelObject = modelObject;
       world.scene.three.add(modelObject);
 
       if (world.camera.fit) {
@@ -130,6 +136,17 @@ export class OBCViewerAdapter implements ViewerAdapter {
 
     // @ts-ignore
     this.modelId = model.id || model.uuid;
+  }
+
+  async unloadModel() {
+    if (this.disposed) return;
+    const worlds = this.components.get(OBC.Worlds);
+    // @ts-ignore
+    const world = Array.from(worlds.list.values())[0] as any;
+    if (world && this.previousModelObject) {
+      world.scene.three.remove(this.previousModelObject);
+      this.previousModelObject = null;
+    }
   }
 
   setMapping(globalIdToExpressId: Map<string, number>, expressIdToGlobalId: Map<number, string>) {
@@ -243,6 +260,7 @@ export class OBCViewerAdapter implements ViewerAdapter {
 
   dispose() {
     this.disposed = true;
+    this.previousModelObject = null;
     try {
       this.components.dispose();
     } catch (e) {

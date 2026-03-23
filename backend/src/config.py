@@ -26,6 +26,20 @@ OUTPUT_DIR = os.path.join(_ROOT, "output")
 IFC_AGENT_WS_HOST = (os.getenv("IFC_AGENT_WS_HOST") or "127.0.0.1").strip()
 IFC_AGENT_WS_PORT = int((os.getenv("IFC_AGENT_WS_PORT") or "8765").strip() or "8765")
 
+
+def _env_truthy(val: str | None) -> bool:
+    if not val:
+        return False
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
+# Skip Groq: reuse IFC + *_issues.json already under output/ (see src.server sample session).
+IFC_AGENT_SAMPLE_MODE = _env_truthy(os.getenv("IFC_AGENT_SAMPLE_MODE"))
+IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME = (
+    os.getenv("IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME")
+    or "ARK_NordicLCA_Housing_Timber_As-built_Archicad.ifc"
+).strip()
+
 MAX_OUTPUT_CHARS = 10_000
 
 # buildingSMART Data Dictionary — https://github.com/buildingSMART/bSDD/blob/master/Documentation/bSDD%20API.md

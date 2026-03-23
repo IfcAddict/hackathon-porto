@@ -5,6 +5,7 @@ import { PropertyPanel } from "./components/PropertyPanel";
 import { IssuesSidebar } from "./components/IssuesSidebar";
 import { useAppStore } from "./store/useAppStore";
 import { usePollBackendIfcFiles } from "./hooks/usePollBackendIfcFiles";
+import { useAgentOutputSync } from "./hooks/useAgentOutputSync";
 import { DiffService } from "./services/DiffService";
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
   const [diffService, setDiffService] = useState<DiffService | null>(null);
 
   usePollBackendIfcFiles();
+  useAgentOutputSync();
 
   useEffect(() => {
     const service = new DiffService();

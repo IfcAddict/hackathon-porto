@@ -60,7 +60,23 @@ uvicorn src.server:app --host 127.0.0.1 --port 8765
 
 Optional environment variables: **`IFC_AGENT_WS_HOST`** and **`IFC_AGENT_WS_PORT`** (defaults `127.0.0.1` and `8765`). Equivalent: `python -m src.server`.
 
-Connect to **`ws://127.0.0.1:8765/ws/session`**. The server writes **`output/{ifc_stem}_issues.json`** early; the client can load issues and the IFC from `output/` while the socket stays open. Send JSON messages of type `review` with optional `group_decisions` and `instructions`; empty `instructions` ends the session and saves the model.
+**Saving inference (sample / dry run):** set **`IFC_AGENT_SAMPLE_MODE=1`** in `backend/.env`. The WebSocket session then skips Groq and reuses an IFC plus its `*_issues.json` that are **already** under `backend/output/` (defaults to `ARK_NordicLCA_Housing_Timber_As-built_Archicad.ifc` and the matching `_issues.json`). Override the basename with **`IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME`** if you use another pair of files in `output/`.
+
+Connect to **`ws://127.0.0.1:8765/ws/session`**. The server writes **`output/{ifc_stem}_issues.json`** early; the frontend loads that IFC and JSON when it receives **`awaiting_review`** or **`session_complete`** (with basenames in the message). Send JSON messages of type `review` with optional `group_decisions` and `instructions`; empty `instructions` ends the session and saves the model.
+
+### Frontend (viewer + agent controls)
+
+Typical dev: run the WebSocket server in one terminal and the Vite app in another:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+In the **Issues** sidebar, use **Run fix agent** to open a session (the backend must already be running). The output IFC and `*_issues.json` are fetched only when the WebSocket reports **ready for review** (`awaiting_review`) or **session complete**—not from continuous output-folder polling. Baseline IFC still polls from `backend/rsc`. When ready, stage accept/reject and use **Send review to agent** to iterate; **Finish session** saves without another agent pass.
+
+If the WebSocket is not at the default URL, set **`VITE_AGENT_WS_URL`** in `frontend/.env` (for example `ws://127.0.0.1:8765/ws/session`).
 
 ## Project Structure
 

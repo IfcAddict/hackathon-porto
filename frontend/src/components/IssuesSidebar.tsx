@@ -1,6 +1,19 @@
 import React, { useMemo, useState } from "react";
-import { X, ListTree, ChevronRight, ChevronDown, Check, Trash2 } from "lucide-react";
+import {
+  X,
+  ListTree,
+  ChevronRight,
+  ChevronDown,
+  Check,
+  Trash2,
+  PlayCircle,
+  Loader2,
+  AlertCircle,
+  Save,
+} from "lucide-react";
 import { useAppStore, type IfcIssue } from "../store/useAppStore";
+import { useAgentSession } from "../hooks/useAgentSession";
+import { getAgentWebSocketUrl } from "../config/agentWs";
 
 function issueRowTitle(title: string, max = 52) {
   if (title.length <= max) return title;
@@ -187,8 +200,44 @@ const IssueTreeNode: React.FC<{
   );
 };
 
+function agentPhaseLabel(phase: string): string {
+  switch (phase) {
+    case "idle":
+      return "Idle";
+    case "connecting":
+      return "Connecting…";
+    case "running":
+      return "Agent running…";
+    case "awaiting_review":
+      return "Ready for your review";
+    case "finalizing":
+      return "Saving…";
+    case "complete":
+      return "Session complete";
+    case "error":
+      return "Error";
+    default:
+      return phase;
+  }
+}
+
 export const IssuesSidebar: React.FC = () => {
-  const { issues, issueFocus, setIssueFocus, setSelection, issueResolutions, commitResolutions } = useAppStore();
+  const { issues, issueFocus, setIssueFocus, setSelection, issueResolutions } = useAppStore();
+  const {
+    phase: agentPhase,
+    errorMessage: agentError,
+    lastReport,
+    startAgentRun,
+    finishSession,
+    applyStagedResolutions,
+    resetComplete,
+  } = useAgentSession();
+
+  const canStartAgent =
+    agentPhase === "idle" || agentPhase === "error" || agentPhase === "complete";
+  const agentBusy =
+    agentPhase === "connecting" || agentPhase === "running" || agentPhase === "finalizing";
+  const canSendReview = agentPhase === "awaiting_review";
 
   const treeRoots = useMemo(() => issues ? buildIssueTree(issues) : [], [issues]);
 
@@ -207,15 +256,92 @@ export const IssuesSidebar: React.FC = () => {
   const rejectedCount = Object.values(issueResolutions).filter(r => r.status === 'rejected').length;
   const totalStaged = acceptedCount + rejectedCount;
 
+  const agentPanel = (
+    <div className="rounded-lg border border-slate-700/80 bg-slate-900/60 p-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+          Backend agent
+        </span>
+        {agentBusy && <Loader2 className="w-3.5 h-3.5 text-violet-400 animate-spin shrink-0" />}
+      </div>
+      <p className="text-[10px] text-slate-500 leading-snug">
+        Start the Python WebSocket server first:{" "}
+        <code className="text-slate-400 break-all">{`uvicorn src.server:app --host 127.0.0.1`}</code>
+        <span className="block mt-1">
+          URL: <code className="text-slate-400 break-all">{getAgentWebSocketUrl()}</code>
+        </span>
+      </p>
+      <button
+        type="button"
+        disabled={!canStartAgent}
+        onClick={() => {
+          if (agentPhase === "complete") resetComplete();
+          startAgentRun();
+        }}
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-semibold bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:pointer-events-none text-white"
+      >
+        <PlayCircle size={16} />
+        Run fix agent
+      </button>
+      <div className="text-[10px] text-slate-400 flex items-center gap-1.5 min-h-[1rem]">
+        <span className="text-slate-500 shrink-0">Status:</span>
+        <span className="text-slate-300">{agentPhaseLabel(agentPhase)}</span>
+      </div>
+      {agentError && (
+        <div className="flex gap-1.5 text-[10px] text-red-300 bg-red-950/40 border border-red-900/50 rounded p-2">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span className="leading-snug break-words">{agentError}</span>
+        </div>
+      )}
+      {agentPhase === "complete" && (
+        <div className="space-y-2">
+          <p className="text-[10px] text-emerald-400/90 leading-snug">
+            Output IFC and <code className="text-emerald-300/80">*_issues.json</code> saved. The viewer
+            refreshes automatically when files change.
+          </p>
+          <button
+            type="button"
+            onClick={resetComplete}
+            className="w-full py-1.5 rounded text-[10px] font-medium border border-slate-600 text-slate-300 hover:bg-slate-800"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {lastReport && agentPhase === "awaiting_review" && (
+        <details className="text-[10px] border border-slate-700/60 rounded-md overflow-hidden">
+          <summary className="cursor-pointer px-2 py-1.5 bg-slate-800/50 text-slate-400 hover:text-slate-200">
+            Latest agent report
+          </summary>
+          <pre className="max-h-36 overflow-auto p-2 text-slate-500 whitespace-pre-wrap break-words font-mono leading-relaxed">
+            {lastReport}
+          </pre>
+        </details>
+      )}
+      {canSendReview && (
+        <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800">
+          <button
+            type="button"
+            onClick={finishSession}
+            className="w-full flex items-center justify-center gap-2 py-1.5 rounded-md text-[10px] font-medium border border-slate-600 text-slate-300 hover:bg-slate-800"
+          >
+            <Save size={12} />
+            Finish session (save, no more passes)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   if (!issues || issues.length === 0) {
     return (
-      <aside className="w-72 shrink-0 border-r border-slate-700 bg-slate-950 flex flex-col text-slate-400 text-sm p-4">
-        <h2 className="text-slate-200 font-semibold text-sm mb-2">Issues</h2>
-        <p className="text-xs leading-relaxed">
-          Load an IFC in the viewer. If a matching{" "}
-          <code className="text-slate-500">*_issues.json</code> is in{" "}
-          <code className="text-slate-500">backend/output</code>, tasks appear here automatically
-          (dev server polls <code className="text-slate-500">/api/ifc-meta</code>).
+      <aside className="w-72 shrink-0 border-r border-slate-700 bg-slate-950 flex flex-col text-slate-400 text-sm p-3 gap-3 min-h-0">
+        <h2 className="text-slate-200 font-semibold text-sm">Issues</h2>
+        {agentPanel}
+        <p className="text-xs leading-relaxed text-slate-500">
+          Output IFC and <code className="text-slate-500">*_issues.json</code> load when the agent reports{" "}
+          <span className="text-slate-400">ready for review</span> over the WebSocket (not from folder polling).
+          Baseline IFC still syncs from <code className="text-slate-500">backend/rsc</code>.
         </p>
       </aside>
     );
@@ -223,23 +349,26 @@ export const IssuesSidebar: React.FC = () => {
 
   return (
     <aside className="w-72 shrink-0 border-r border-slate-700 bg-slate-950 flex flex-col min-h-0 text-slate-200">
-      <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
-        <div>
-          <h2 className="font-semibold text-sm text-slate-100">Issues</h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            {issues.length} validation task{issues.length === 1 ? "" : "s"}
-          </p>
+      <div className="p-3 border-b border-slate-800 flex flex-col gap-2 shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold text-sm text-slate-100">Issues</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {issues.length} validation task{issues.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          {issueFocus !== null && (
+            <button
+              type="button"
+              onClick={clearFocus}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-white px-2 py-1 rounded border border-slate-700 hover:bg-slate-800 shrink-0"
+            >
+              <X size={14} />
+              Clear focus
+            </button>
+          )}
         </div>
-        {issueFocus !== null && (
-          <button
-            type="button"
-            onClick={clearFocus}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-white px-2 py-1 rounded border border-slate-700 hover:bg-slate-800"
-          >
-            <X size={14} />
-            Clear focus
-          </button>
-        )}
+        {agentPanel}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0 p-2">
@@ -267,11 +396,18 @@ export const IssuesSidebar: React.FC = () => {
             <span className="text-red-500">{rejectedCount} rejected</span>
           </div>
           <button
-            onClick={commitResolutions}
-            className="w-full py-2 rounded text-xs font-bold transition-all bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 flex justify-center items-center gap-2"
+            type="button"
+            disabled={!canSendReview}
+            title={
+              canSendReview
+                ? "Send staged accept/reject to the agent for another pass"
+                : "Wait until the agent is ready for review (see status above)"
+            }
+            onClick={applyStagedResolutions}
+            className="w-full py-2 rounded text-xs font-bold transition-all bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-white shadow-lg shadow-emerald-500/20 flex justify-center items-center gap-2"
           >
             <Check size={14} />
-            Apply changes
+            Send review to agent
           </button>
         </div>
       )}
