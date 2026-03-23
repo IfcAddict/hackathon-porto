@@ -54,7 +54,7 @@ function buildIssueTree(issues: IfcIssue[]): IssueNode[] {
     // Parent title might be after " — "
     const match = issue.title.match(/^.* ×\d+ — (.*)$/);
     if (match) {
-      const parentTitle = match[1];
+      const parentTitle = match[1].trim();
       const parentNode = map.get(parentTitle);
       if (parentNode) {
         parentNode.children.push(node);
@@ -173,7 +173,11 @@ const IssueTreeNode: React.FC<{
               }`}
             >
               <div className="flex justify-between items-start gap-2">
-                <span className="font-mono text-violet-400 shrink-0">#{issue.id}</span>
+                {issue.id >= 0 ? (
+                  <span className="font-mono text-violet-400 shrink-0">#{issue.id}</span>
+                ) : (
+                  <span className="font-mono text-slate-500 shrink-0">Group</span>
+                )}
                 {derivedStatus === 'mixed' ? (
                   <span className="text-[9px] font-bold tracking-wide flex items-center gap-1 border border-slate-700 bg-slate-800/50 px-1 rounded shrink-0">
                     <span className="text-emerald-500">{stats.accepted}</span>/

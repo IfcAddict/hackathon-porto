@@ -136,6 +136,62 @@ export class DiffService {
     const globalIdToExpressId = new Map<string, number>();
     const expressIdToGlobalId = new Map<number, string>();
 
+    // Resolve Types
+    const typeByElement = new Map<number, number>();
+    try {
+      const rels = this.ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELDEFINESBYTYPE, true);
+      for (let i = 0; i < rels.size(); i++) {
+        try {
+          const rel = this.ifcAPI.GetLine(modelID, rels.get(i));
+          const typeId = rel?.RelatingType?.value;
+          if (typeId && Array.isArray(rel.RelatedObjects)) {
+            for (const obj of rel.RelatedObjects) {
+              if (obj?.value) typeByElement.set(obj.value, typeId);
+            }
+          }
+        } catch (e) {}
+      }
+    } catch(e) {}
+
+    // Resolve Property Sets
+    const psetsByTarget = new Map<number, Record<string, any>[]>();
+    try {
+      const rels = this.ifcAPI.GetLineIDsWithType(modelID, WebIFC.IFCRELDEFINESBYPROPERTIES, true);
+      for (let i = 0; i < rels.size(); i++) {
+        try {
+          const rel = this.ifcAPI.GetLine(modelID, rels.get(i));
+          const psetId = rel?.RelatingPropertyDefinition?.value;
+          if (!psetId) continue;
+          const pset = this.ifcAPI.GetLine(modelID, psetId);
+          if (!pset) continue;
+          
+          const psetName = pset.Name?.value || "Pset";
+          const props: Record<string, any> = {};
+          if (Array.isArray(pset.HasProperties)) {
+            for (const propHandle of pset.HasProperties) {
+               if (propHandle?.value) {
+                 try {
+                   const propLine = this.ifcAPI.GetLine(modelID, propHandle.value);
+                   if (propLine && propLine.Name?.value) {
+                     props[`${psetName}.${propLine.Name.value}`] = propLine.NominalValue;
+                   }
+                 } catch(e) {}
+               }
+            }
+          }
+          
+          if (Array.isArray(rel.RelatedObjects)) {
+            for (const obj of rel.RelatedObjects) {
+              if (obj?.value) {
+                if (!psetsByTarget.has(obj.value)) psetsByTarget.set(obj.value, []);
+                psetsByTarget.get(obj.value)!.push(props);
+              }
+            }
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
+
     const expressIds = this.collectExpressIdsForDiff(modelID);
     for (const expressId of expressIds) {
       try {
@@ -146,7 +202,55 @@ export class DiffService {
         const gid = props?.GlobalId as { value?: string } | undefined;
         if (gid?.value) {
           const globalId = gid.value;
-          elements[globalId] = { properties: props, expressId };
+          const allProps = { ...props };
+          
+          // Attach type's attributes and psets first (so occurrence can override)
+          const typeId = typeByElement.get(expressId);
+          if (typeId) {
+             try {
+               const tProps = this.ifcAPI.GetLine(modelID, typeId);
+               if (tProps) {
+                  // Propagate PredefinedType if not defined on occurrence
+                  if (tProps.PredefinedType !== undefined && tProps.PredefinedType !== null) {
+                    allProps['Type.PredefinedType'] = tProps.PredefinedType;
+                  }
+                  
+                  // Propagate Type's own HasPropertySets
+                  if (Array.isArray(tProps.HasPropertySets)) {
+                    for (const psetHandle of tProps.HasPropertySets) {
+                      if (psetHandle?.value) {
+                        try {
+                           const psetLine = this.ifcAPI.GetLine(modelID, psetHandle.value);
+                           if (psetLine) {
+                              const psetName = psetLine.Name?.value || "Pset";
+                              if (Array.isArray(psetLine.HasProperties)) {
+                                for (const propHandle of psetLine.HasProperties) {
+                                  if (propHandle?.value) {
+                                    try {
+                                      const propLine = this.ifcAPI.GetLine(modelID, propHandle.value);
+                                      if (propLine && propLine.Name?.value) {
+                                        allProps[`${psetName}.${propLine.Name.value}`] = propLine.NominalValue;
+                                      }
+                                    } catch(e) {}
+                                  }
+                                }
+                              }
+                           }
+                        } catch(e) {}
+                      }
+                    }
+                  }
+               }
+             } catch (e) {}
+             const typePsets = psetsByTarget.get(typeId) || [];
+             for (const p of typePsets) Object.assign(allProps, p);
+          }
+
+          // Attach occurrences's psets
+          const myPsets = psetsByTarget.get(expressId) || [];
+          for (const p of myPsets) Object.assign(allProps, p);
+          
+          elements[globalId] = { properties: allProps, expressId };
           globalIdToExpressId.set(globalId, expressId);
           expressIdToGlobalId.set(expressId, globalId);
         }

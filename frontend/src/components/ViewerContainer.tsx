@@ -5,15 +5,18 @@ import { useAppStore } from "../store/useAppStore";
 
 function issueFocusGlobalIds(
   issueFocus: number | null,
-  issues: { elementIds: string[] }[] | null,
+  issues: { id: number; elementIds: string[] }[] | null,
   selectionGroup: string[] | null
 ): { ids: string[] | null; colorHex: string; isolateRest: boolean } {
   if (selectionGroup && selectionGroup.length > 0) {
     return { ids: selectionGroup, colorHex: "#3b82f6", isolateRest: true }; // blue, isolate element group
   }
 
-  if (issueFocus !== null && issues && issues[issueFocus]) {
-    return { ids: issues[issueFocus].elementIds, colorHex: "#a855f7", isolateRest: true }; // violet, isolate elements
+  if (issueFocus !== null && issues) {
+    const issue = issues.find(i => i.id === issueFocus);
+    if (issue) {
+      return { ids: issue.elementIds, colorHex: "#a855f7", isolateRest: true }; // violet, isolate elements
+    }
   }
   
   if (issues && issues.length > 0) {

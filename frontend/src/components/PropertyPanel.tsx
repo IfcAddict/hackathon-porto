@@ -19,7 +19,7 @@ const fmt = (v: unknown) => {
 export const PropertyPanel: React.FC = () => {
   const { selection, selectionGroup, setSelection, setSelectionGroup, properties, diff, issueFocus, issues, setIssueFocus } = useAppStore();
 
-  const focusedIssue = issueFocus !== null && issues ? issues[issueFocus] : null;
+  const focusedIssue = issueFocus !== null && issues ? issues.find(i => i.id === issueFocus) : null;
 
   // --- Single Element Logic ---
   const currentProps = selection ? properties?.[selection] : undefined;
@@ -267,15 +267,18 @@ export const PropertyPanel: React.FC = () => {
       </div>
 
       <div className="p-4 overflow-y-auto min-h-0 custom-scrollbar">
-        {aggregatedDiffs.length === 0 && (
+        {aggregatedDiffs.length === 0 && commonProps.length === 0 && (
           <div className="text-center text-slate-500 text-sm py-8 pt-6">
-            No modifications found for this group.
+            No modifications or common properties found for this group.
           </div>
         )}
 
         <div className="flex flex-col gap-4">
           {aggregatedDiffs.length > 0 && (
             <div>
+              <div className="text-xs font-semibold text-slate-300 mb-2">
+                Modifications
+              </div>
               <div className="w-full border border-slate-700/60 rounded-md overflow-x-auto bg-slate-800/20 custom-scrollbar">
                 <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
                   <thead>
@@ -347,6 +350,22 @@ export const PropertyPanel: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {commonProps.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-slate-300 mb-2 mt-2">
+                Common Properties
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {commonProps.map(([k, v]) => (
+                  <div key={k} className="flex items-baseline gap-1.5 px-2 py-1 rounded-md border text-[11px] bg-slate-800/40 border-slate-700/50 hover:bg-slate-700/40 transition-colors">
+                    <span className="font-medium text-slate-400 uppercase tracking-wider">{k}:</span>
+                    <span className="text-slate-200 font-mono break-all">{fmt(v)}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
