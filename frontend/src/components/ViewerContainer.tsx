@@ -1,11 +1,25 @@
 import React, { useEffect, useRef, useState } from "react";
 import { OBCViewerAdapter } from "../services/OBCViewerAdapter";
 import { ViewerAdapter } from "../services/ViewerAdapter";
-import { useAppStore, type DiffResult } from "../store/useAppStore";
+import { useAppStore } from "../store/useAppStore";
 
-function focusIsolateIds(focus: { globalId: string } | null): string[] | null {
-  if (!focus) return null;
-  return [focus.globalId];
+function issueFocusGlobalIds(
+  issueFocus: number | null,
+  issues: { elementIds: string[] }[] | null
+): { ids: string[] | null; colorHex: string; isolateRest: boolean } {
+  if (issueFocus !== null && issues && issues[issueFocus]) {
+    return { ids: issues[issueFocus].elementIds, colorHex: "#a855f7", isolateRest: true }; // violet, isolate elements
+  }
+  
+  if (issues && issues.length > 0) {
+    const allIds = new Set<string>();
+    for (const issue of issues) {
+      for (const id of issue.elementIds) allIds.add(id);
+    }
+    return { ids: Array.from(allIds), colorHex: "#ef4444", isolateRest: false }; // red, do not isolate
+  }
+  
+  return { ids: null, colorHex: "#a855f7", isolateRest: false };
 }
 
 interface ViewerContainerProps {
@@ -18,16 +32,11 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
   const setSelection = useAppStore((s) => s.setSelection);
   const [loading, setLoading] = useState(false);
 
-  const initialized = useRef(false);
-  /** Post-load apply chain only — must not share a counter with diff/focus or the diff effect invalidates load. */
   const loadApplyGenRef = useRef(0);
-  /** Diff / isolate / focus rapid-click guard (independent from load). */
-  const diffFocusGenRef = useRef(0);
+  const isolateGenRef = useRef(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    if (initialized.current) return;
-    initialized.current = true;
 
     let mounted = true;
     const viewerAdapter = new OBCViewerAdapter();
@@ -48,17 +57,17 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
       setAdapter(viewerAdapter);
     }
 
-    setupViewer();
+    void setupViewer();
 
     return () => {
       mounted = false;
       viewerAdapter.dispose();
+      setAdapter(null);
     };
   }, [setSelection]);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Load model when file changes
   useEffect(() => {
     if (!adapter || !modelFile) return;
 
@@ -72,11 +81,8 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
         await adapter.loadModel(modelFile);
         if (stale()) return;
         const st = useAppStore.getState();
-        await adapter.applyDiffAndIsolate(
-          st.diff,
-          focusIsolateIds(st.diffFocus),
-          stale
-        );
+        const { ids, colorHex, isolateRest } = issueFocusGlobalIds(st.issueFocus, st.issues);
+        await adapter.refreshIsolate(ids, colorHex, isolateRest, stale);
       } catch (e: any) {
         console.error("Failed to load IFC", e);
         setErrorMsg(e?.message || String(e));
@@ -90,45 +96,27 @@ export const ViewerContainer: React.FC<ViewerContainerProps> = ({ modelFile }) =
     };
   }, [adapter, modelFile]);
 
-  const diff = useAppStore((state) => state.diff);
-  const diffFocus = useAppStore((state) => state.diffFocus);
-
-  const prevDiffRef = useRef<DiffResult | null | undefined>(undefined);
-
-  useEffect(() => {
-    prevDiffRef.current = undefined;
-  }, [adapter]);
+  const issueFocus = useAppStore((state) => state.issueFocus);
+  const issues = useAppStore((state) => state.issues);
 
   useEffect(() => {
     if (!adapter) return;
 
-    const myGen = ++diffFocusGenRef.current;
-    const stale = () => myGen !== diffFocusGenRef.current;
+    const myGen = ++isolateGenRef.current;
+    const stale = () => myGen !== isolateGenRef.current;
 
-    const prev = prevDiffRef.current;
-    const diffChanged = prev !== diff;
-    const focusIds = focusIsolateIds(diffFocus);
+    const { ids, colorHex, isolateRest } = issueFocusGlobalIds(issueFocus, issues);
 
-    const run = async () => {
-      if (diffChanged) {
-        await adapter.applyDiffAndIsolate(diff, focusIds, stale);
-      } else {
-        await adapter.setFragmentIsolate(focusIds, stale);
-        if (diff) await adapter.reapplyDiffHighlighterLayer(diff, stale);
-      }
-      if (!stale()) prevDiffRef.current = diff;
-    };
-
-    void run();
+    void adapter.refreshIsolate(ids, colorHex, isolateRest, stale);
     return () => {
-      diffFocusGenRef.current++;
+      isolateGenRef.current++;
     };
-  }, [adapter, diff, diffFocus]);
+  }, [adapter, issueFocus, issues]);
 
   return (
     <div className="relative w-full h-full bg-slate-900 overflow-hidden">
       <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-slate-800/80 rounded text-slate-300 font-semibold text-sm border border-slate-700/50 backdrop-blur-sm pointer-events-none">
-        Current model
+        Model
       </div>
 
       {loading && (

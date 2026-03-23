@@ -4,10 +4,6 @@ import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 import type { ViewerAdapter, VisualStaleCheck } from "./ViewerAdapter";
-import type { DiffResult } from "../store/useAppStore";
-import { DIFF_COLORS } from "../config/diffVisual";
-
-import * as WEBIFC from "web-ifc";
 
 /** Applied to all geometry in the fragment model; focused items are reset afterward. */
 const FRAGMENT_DIM_STYLE: FRAGS.MaterialDefinition = {
@@ -22,12 +18,8 @@ export class OBCViewerAdapter implements ViewerAdapter {
   private components: OBC.Components;
   private container: HTMLElement | null = null;
   private selectCallback: ((globalId: string | null) => void) | null = null;
+  private disposed = false;
 
-  /**
-   * One fragment/highlighter mutation chain at a time. Prevents interleaving
-   * (e.g. load vs diff, or rapid clicks) which left the scene dimmed without
-   * focus reset. Skipped jobs only consult isStale before any GPU writes.
-   */
   private visualTail: Promise<void> = Promise.resolve();
 
   private enqueueVisual<T>(fn: () => Promise<T>): Promise<T> {
@@ -41,7 +33,7 @@ export class OBCViewerAdapter implements ViewerAdapter {
 
   private globalIdToExpressId = new Map<string, number>();
   private expressIdToGlobalId = new Map<number, string>();
-  private modelMap = new Map<string, any>(); // cache of properties
+  private modelMap = new Map<string, any>();
 
   private modelId: string | null = null;
   private customHighlightMaterials: Record<string, THREE.MeshBasicMaterial> = {};
@@ -76,9 +68,8 @@ export class OBCViewerAdapter implements ViewerAdapter {
     world.camera.controls.setLookAt(12, 6, 8, 0, 0, -10);
     world.scene.three.background = new THREE.Color(0xf5f5f5);
 
-    // Add a grid
     const grids = this.components.get(OBC.Grids);
-    const grid = grids.create(world as any);
+    grids.create(world as any);
 
     const highlighter = this.components.get(OBCF.Highlighter);
     highlighter.setup({ world: world as any });
@@ -101,40 +92,39 @@ export class OBCViewerAdapter implements ViewerAdapter {
   }
 
   async loadModel(file: File) {
+    if (this.disposed) return;
+
+    const fragments = this.components.get(OBC.FragmentsManager);
+    if (!fragments.initialized) {
+      fragments.init(fragmentsWorkerUrl);
+    }
+
     const ifcLoader = this.components.get(OBC.IfcLoader);
     await ifcLoader.setup({
       wasm: {
         path: "/",
-        absolute: true
+        absolute: true,
       },
       webIfc: {
-        COORDINATE_TO_ORIGIN: false
+        COORDINATE_TO_ORIGIN: false,
       },
-      autoSetWasm: false
+      autoSetWasm: false,
     });
-
-    // Exclude basic non-visual spaces and openings to avoid zero length errors
-    // ifcLoader.settings.excludedCategories.add(WEBIFC.IFCSPACE);
-    // ifcLoader.settings.excludedCategories.add(WEBIFC.IFCOPENINGELEMENT);
 
     const buffer = await file.arrayBuffer();
     const data = new Uint8Array(buffer);
 
-    // Provide 3 args to load
     const model = await ifcLoader.load(data, false, file.name);
 
-    // Add to world
     const worlds = this.components.get(OBC.Worlds);
     // @ts-ignore
     const world = Array.from(worlds.list.values())[0] as any;
     if (world) {
-      // In @thatopen/components v3, IfcLoader returns a FragmentsModel with an object property.
       const modelObject = (model as any).object || model;
       world.scene.three.add(modelObject);
-      
-      // Attempt to fit the camera to the loaded model, which should also trigger a render update
+
       if (world.camera.fit) {
-          await world.camera.fit([modelObject]);
+        await world.camera.fit([modelObject]);
       }
     }
 
@@ -169,7 +159,7 @@ export class OBCViewerAdapter implements ViewerAdapter {
     if (globalIds.length === 0) return;
 
     const highlighter = this.components.get(OBCF.Highlighter);
-    const styleKey = `diff-${colorHex.replace(/^#/, "")}`;
+    const styleKey = `hl-${colorHex.replace(/^#/, "")}`;
     highlighter.styles.set(styleKey, {
       color: new THREE.Color(colorHex),
       renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -180,12 +170,7 @@ export class OBCViewerAdapter implements ViewerAdapter {
     const modelIdMap = await fragments.guidsToModelIdMap(globalIds);
     if (!modelIdMap || Object.keys(modelIdMap).length === 0) return;
 
-    await highlighter.highlightByID(
-      styleKey,
-      modelIdMap,
-      removePrevious,
-      false
-    );
+    await highlighter.highlightByID(styleKey, modelIdMap, removePrevious, false);
   }
 
   async clearHighlights(isStale?: VisualStaleCheck) {
@@ -202,15 +187,7 @@ export class OBCViewerAdapter implements ViewerAdapter {
     await highlighter.clear();
   }
 
-  /**
-   * Dims all loaded fragment geometry, then restores full shading for the given GlobalIds.
-   * Uses FragmentsManager.highlight (not mesh.setOpacity), which works with the BIM renderer.
-   * Does not modify Highlighter — call before re-applying diff highlight styles.
-   */
-  async setFragmentIsolate(
-    globalIds: string[] | null,
-    isStale?: VisualStaleCheck
-  ) {
+  async setFragmentIsolate(globalIds: string[] | null, isStale?: VisualStaleCheck) {
     return this.enqueueVisual(async () => {
       if (isStale?.()) return;
       await this.setFragmentIsolateImpl(globalIds);
@@ -219,45 +196,34 @@ export class OBCViewerAdapter implements ViewerAdapter {
 
   private async setFragmentIsolateImpl(globalIds: string[] | null) {
     const fragments = this.components.get(OBC.FragmentsManager);
+    const hider = this.components.get(OBC.Hider);
+    
     if (!fragments.initialized) return;
 
+    // Reset everything to opaque and visible
     await fragments.resetHighlight(undefined);
+    await hider.set(true);
 
-    if (!globalIds || globalIds.length === 0) return;
+    // If there's no list of IDs to focus on, don't hide anything
+    if (!globalIds || globalIds.length === 0) {
+      return;
+    }
 
     const focusMap = await fragments.guidsToModelIdMap(globalIds);
     if (!focusMap || Object.keys(focusMap).length === 0) return;
 
-    await fragments.highlight(FRAGMENT_DIM_STYLE, undefined);
-
-    await fragments.resetHighlight(focusMap);
+    // Isolate the focused elements (hides everything else completely)
+    await hider.isolate(focusMap);
   }
 
-  async reapplyDiffHighlighterLayer(d: DiffResult, isStale?: VisualStaleCheck) {
-    return this.enqueueVisual(async () => {
-      if (isStale?.()) return;
-      await this.reapplyDiffHighlighterLayerImpl(d);
-    });
-  }
-
-  /** Current IFC in the viewer: highlight added + modified. Deleted GUIDs are not in this file. */
-  private async reapplyDiffHighlighterLayerImpl(d: DiffResult) {
-    const modifiedIds = Object.keys(d.modified);
-    await this.highlightElementsImpl(d.added, DIFF_COLORS.added, true);
-    await this.highlightElementsImpl(modifiedIds, DIFF_COLORS.modified, false);
-  }
-
-  async applyDiffAndIsolate(
-    d: DiffResult | null,
-    focusGlobalIds: string[] | null,
-    isStale?: VisualStaleCheck
-  ) {
+  async refreshIsolate(focusGlobalIds: string[] | null, colorHex = "#a855f7", isolateRest = true, isStale?: VisualStaleCheck) {
     return this.enqueueVisual(async () => {
       if (isStale?.()) return;
       await this.clearHighlightsImpl();
-      await this.setFragmentIsolateImpl(focusGlobalIds);
-      if (!d) return;
-      await this.reapplyDiffHighlighterLayerImpl(d);
+      await this.setFragmentIsolateImpl(isolateRest ? focusGlobalIds : null);
+      if (focusGlobalIds && focusGlobalIds.length > 0) {
+        await this.highlightElementsImpl(focusGlobalIds, colorHex, true);
+      }
     });
   }
 
@@ -272,9 +238,10 @@ export class OBCViewerAdapter implements ViewerAdapter {
   }
 
   dispose() {
+    this.disposed = true;
     try {
       this.components.dispose();
-    } catch(e) {
+    } catch (e) {
       // suppress
     }
   }

@@ -28,6 +28,7 @@ def _ifc_class_from_title(title: str) -> str | None:
 
 def summarize_issues_for_agent(
     issues: list[dict],
+    ifc_model=None,
     *,
     max_sample_titles: int = 3,
     context_head_chars: int = 120,
@@ -104,10 +105,30 @@ def summarize_issues_for_agent(
             for s in data["samples"]:
                 desc_lines.append(f"  - {s}")
 
+        raw_gids = list(set(data["element_ids"]))
+        final_gids = []
+        
+        if ifc_model is not None:
+            for gid in raw_gids:
+                try:
+                    el = ifc_model.by_guid(gid)
+                    if el is not None and el.is_a("IfcTypeObject"):
+                        # Find occurrences
+                        for rel in ifc_model.get_inverse(el):
+                            if rel.is_a("IfcRelDefinesByType"):
+                                for obj in getattr(rel, "RelatedObjects", []):
+                                    final_gids.append(obj.GlobalId)
+                    else:
+                        final_gids.append(gid)
+                except Exception:
+                    final_gids.append(gid)
+        else:
+            final_gids = raw_gids
+
         summarized.append({
             "title": title, 
             "description": "\n".join(desc_lines),
-            "elementIds": list(set(data["element_ids"]))
+            "elementIds": list(set(final_gids))
         })
 
     # Compact IDS rows first (overall spec failures), then grouped element-level summaries.

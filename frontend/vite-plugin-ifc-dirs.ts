@@ -27,6 +27,23 @@ function safeIfcBasename(segment: string): string | null {
   return base;
 }
 
+/** Companion file in `output/`: `{stem}_issues.json` for `{stem}.ifc`. */
+function issuesJsonBasename(ifcName: string): string | null {
+  const lower = ifcName.toLowerCase();
+  if (!lower.endsWith(".ifc")) return null;
+  const stem = ifcName.slice(0, -".ifc".length);
+  return `${stem}_issues.json`;
+}
+
+function safeIssuesJsonBasename(segment: string): string | null {
+  const decoded = decodeURIComponent(segment);
+  const base = path.basename(decoded);
+  if (base !== decoded || base.includes("..")) return null;
+  if (!/_issues\.json$/i.test(base)) return null;
+  if (!/^[a-zA-Z0-9.$_-]+_issues\.json$/i.test(base)) return null;
+  return base;
+}
+
 function attachIfcMiddleware(middlewares: Connect.Server) {
   const root = backendRoot();
   const rscDir = path.join(root, "rsc");
@@ -59,8 +76,22 @@ function attachIfcMiddleware(middlewares: Connect.Server) {
         }
       }
 
+      let issues: { filename: string; mtimeMs: number } | null = null;
+      if (baselineName) {
+        const issuesName = issuesJsonBasename(baselineName);
+        if (issuesName) {
+          const issuesFull = path.join(outputDir, issuesName);
+          try {
+            const st = fs.statSync(issuesFull);
+            issues = { filename: issuesName, mtimeMs: st.mtimeMs };
+          } catch {
+            issues = null;
+          }
+        }
+      }
+
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ baseline, current }));
+      res.end(JSON.stringify({ baseline, current, issues }));
       return;
     }
 
@@ -79,7 +110,20 @@ function attachIfcMiddleware(middlewares: Connect.Server) {
     }
 
     if (raw.startsWith("/output/") && req.method === "GET") {
-      const name = safeIfcBasename(raw.slice("/output/".length));
+      const seg = raw.slice("/output/".length);
+      const issuesName = safeIssuesJsonBasename(seg);
+      if (issuesName) {
+        const full = path.join(outputDir, issuesName);
+        if (!fs.existsSync(full)) {
+          res.statusCode = 404;
+          res.end("Not found");
+          return;
+        }
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        fs.createReadStream(full).pipe(res);
+        return;
+      }
+      const name = safeIfcBasename(seg);
       if (!name) return next();
       const full = path.join(outputDir, name);
       if (!fs.existsSync(full)) {

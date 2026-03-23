@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
 export interface DiffResult {
   added: string[];
@@ -11,37 +11,72 @@ export interface DiffResult {
   }>;
 }
 
-/** Sidebar “isolate in viewer” target for a chosen diff row. */
-export interface DiffFocus {
-  globalId: string;
+/** One validation / IDS task from `*_issues.json` (GlobalIds in `elementIds`). */
+export interface IfcIssue {
+  id: number;
+  title: string;
+  description: string;
+  elementIds: string[];
 }
 
 interface AppState {
-  /** Baseline IFC — parsed for diff only, not shown in the 3D viewer. */
+  /** Baseline IFC (from `backend/rsc` via poll) for diff computation. */
   baselineIfcFile: File | null;
-  /** Current/revised IFC — loaded in the single viewer; diff vs baseline drives highlights. */
-  currentIfcFile: File | null;
+  /** IFC shown in the 3D viewer (e.g. from `backend/output` via poll or manual upload). */
+  ifcFile: File | null;
+  /** Computed diff between baseline and ifcFile */
   diff: DiffResult | null;
-  diffFocus: DiffFocus | null;
+  /** Extracted properties for all elements in ifcFile */
+  properties: Record<string, any> | null;
+  
+  /** Index into `issues`; isolates all `elementIds` for that task in the viewer. */
+  issueFocus: number | null;
+  issues: IfcIssue[] | null;
+  /** GlobalId → issue ids that reference this element. */
+  issueIdsByGlobalId: Record<string, number[]>;
   selection: string | null;
 
   setBaselineIfcFile: (file: File | null) => void;
-  setCurrentIfcFile: (file: File | null) => void;
-  setDiff: (diff: DiffResult | null) => void;
-  setDiffFocus: (focus: DiffFocus | null) => void;
+  setIfcFile: (file: File | null) => void;
+  setDiffAndProperties: (diff: DiffResult | null, properties: Record<string, any> | null) => void;
+  setIssueFocus: (issueIndex: number | null) => void;
+  setIssues: (issues: IfcIssue[] | null) => void;
   setSelection: (globalId: string | null) => void;
+}
+
+function buildIssueIndex(issues: IfcIssue[] | null): Record<string, number[]> {
+  if (!issues) return {};
+  const map: Record<string, number[]> = {};
+  for (const issue of issues) {
+    for (const gid of issue.elementIds) {
+      const list = map[gid];
+      if (list) {
+        if (!list.includes(issue.id)) list.push(issue.id);
+      } else map[gid] = [issue.id];
+    }
+  }
+  return map;
 }
 
 export const useAppStore = create<AppState>((set) => ({
   baselineIfcFile: null,
-  currentIfcFile: null,
+  ifcFile: null,
   diff: null,
-  diffFocus: null,
+  properties: null,
+  issueFocus: null,
+  issues: null,
+  issueIdsByGlobalId: {},
   selection: null,
 
   setBaselineIfcFile: (file) => set({ baselineIfcFile: file }),
-  setCurrentIfcFile: (file) => set({ currentIfcFile: file }),
-  setDiff: (diff) => set({ diff, diffFocus: null }),
-  setDiffFocus: (focus) => set({ diffFocus: focus }),
+  setIfcFile: (file) => set({ ifcFile: file }),
+  setDiffAndProperties: (diff, properties) => set({ diff, properties }),
+  setIssueFocus: (issueIndex) => set({ issueFocus: issueIndex }),
+  setIssues: (issues) =>
+    set({
+      issues,
+      issueIdsByGlobalId: buildIssueIndex(issues),
+      issueFocus: null,
+    }),
   setSelection: (globalId) => set({ selection: globalId }),
 }));

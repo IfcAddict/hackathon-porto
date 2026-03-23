@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { Toolbar } from './components/Toolbar';
-import { ViewerContainer } from './components/ViewerContainer';
-import { PropertyPanel } from './components/PropertyPanel';
-import { DiffSidebar } from './components/DiffSidebar';
-import { useAppStore } from './store/useAppStore';
-import { DiffService } from './services/DiffService';
-import { usePollBackendIfcFiles } from './hooks/usePollBackendIfcFiles';
+import React, { useEffect, useState } from "react";
+import { Toolbar } from "./components/Toolbar";
+import { ViewerContainer } from "./components/ViewerContainer";
+import { PropertyPanel } from "./components/PropertyPanel";
+import { IssuesSidebar } from "./components/IssuesSidebar";
+import { useAppStore } from "./store/useAppStore";
+import { usePollBackendIfcFiles } from "./hooks/usePollBackendIfcFiles";
+import { DiffService } from "./services/DiffService";
 
 function App() {
-  const { baselineIfcFile, currentIfcFile, setDiff } = useAppStore();
+  const { baselineIfcFile, ifcFile, setDiffAndProperties } = useAppStore();
   const [diffService, setDiffService] = useState<DiffService | null>(null);
 
   usePollBackendIfcFiles();
@@ -22,35 +22,35 @@ function App() {
 
   useEffect(() => {
     if (!diffService) return;
-    if (!baselineIfcFile || !currentIfcFile) {
-      setDiff(null);
+    if (!ifcFile) {
+      setDiffAndProperties(null, null);
       return;
     }
 
     let cancelled = false;
     diffService
-      .compare(baselineIfcFile, currentIfcFile)
-      .then((result) => {
-        if (!cancelled) setDiff(result);
+      .compare(baselineIfcFile, ifcFile)
+      .then(({ diff, currentProperties }) => {
+        if (!cancelled) setDiffAndProperties(diff, currentProperties);
       })
       .catch((err) => {
-        console.error("Diff computation failed", err);
-        if (!cancelled) setDiff(null);
+        console.error("Diff/Properties computation failed", err);
+        if (!cancelled) setDiffAndProperties(null, null);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [baselineIfcFile, currentIfcFile, diffService, setDiff]);
+  }, [baselineIfcFile, ifcFile, diffService, setDiffAndProperties]);
 
   return (
     <div className="w-screen h-screen flex flex-col bg-slate-900 overflow-hidden font-sans">
       <Toolbar />
-      
+
       <div className="flex-1 flex w-full min-h-0 relative pt-16 border-t border-slate-700">
-        <DiffSidebar />
+        <IssuesSidebar />
         <div className="flex-1 relative min-w-0 min-h-0">
-          <ViewerContainer modelFile={currentIfcFile} />
+          <ViewerContainer modelFile={ifcFile} />
         </div>
 
         <PropertyPanel />

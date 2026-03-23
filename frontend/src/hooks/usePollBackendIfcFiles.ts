@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore, type IfcIssue } from "../store/useAppStore";
 
 const META_URL = "/api/ifc-meta";
 const POLL_MS = 2000;
@@ -7,6 +7,7 @@ const POLL_MS = 2000;
 export interface IfcMetaResponse {
   baseline: { filename: string; mtimeMs: number } | null;
   current: { filename: string; mtimeMs: number } | null;
+  issues: { filename: string; mtimeMs: number } | null;
 }
 
 function metaKey(entry: { filename: string; mtimeMs: number } | null): string | null {
@@ -33,17 +34,50 @@ async function fetchIfcAsFile(url: string, filename: string): Promise<File> {
   return new File([blob], filename, { type: "application/octet-stream" });
 }
 
+function parseIssuesPayload(data: unknown): IfcIssue[] | null {
+  if (!Array.isArray(data)) return null;
+  const out: IfcIssue[] = [];
+  let i = 0;
+  for (const item of data) {
+    if (!item || typeof item !== "object") return null;
+    const rec = item as Record<string, unknown>;
+    const title = rec.title;
+    const description = rec.description;
+    const elementIds = rec.elementIds;
+    if (typeof title !== "string" || typeof description !== "string") return null;
+    if (!Array.isArray(elementIds) || !elementIds.every((x) => typeof x === "string")) return null;
+    out.push({ id: i++, title, description, elementIds });
+  }
+  return out;
+}
+
+async function fetchIssuesJson(url: string): Promise<IfcIssue[] | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    return parseIssuesPayload(data);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Dev/preview: poll `/api/ifc-meta` (Vite `ifc-dirs` plugin) and fetch changed IFCs.
- * Baseline comes from `backend/rsc`, current from `backend/output` (same basename).
- * Updates store files when mtimes change so DiffService and the viewer stay in sync.
+ * Poll `/api/ifc-meta` (Vite `ifc-dirs` plugin): load IFC from `backend/output`
+ * and companion `*_issues.json` when mtimes change.
  */
 export function usePollBackendIfcFiles() {
-  const setBaseline = useAppStore((s) => s.setBaselineIfcFile);
-  const setCurrent = useAppStore((s) => s.setCurrentIfcFile);
-  const lastKeysRef = useRef<{ baseline: string | null; current: string | null }>({
+  const setBaselineIfcFile = useAppStore((s) => s.setBaselineIfcFile);
+  const setIfcFile = useAppStore((s) => s.setIfcFile);
+  const setIssues = useAppStore((s) => s.setIssues);
+  const lastKeysRef = useRef<{
+    baseline: string | null;
+    current: string | null;
+    issues: string | null;
+  }>({
     baseline: null,
     current: null,
+    issues: null,
   });
 
   useEffect(() => {
@@ -70,18 +104,37 @@ export function usePollBackendIfcFiles() {
     const tick = async () => {
       const meta = await fetchMeta();
       if (cancelled || !meta) return;
+
       await pullIfNew(
         meta.baseline,
         (f) => `/rsc/${encodeURIComponent(f)}`,
         "baseline",
-        setBaseline
+        setBaselineIfcFile
       );
       await pullIfNew(
         meta.current,
         (f) => `/output/${encodeURIComponent(f)}`,
         "current",
-        setCurrent
+        setIfcFile
       );
+
+      const issuesK = metaKey(meta.issues);
+      if (!issuesK || !meta.issues) {
+        if (lastKeysRef.current.issues !== null) {
+          lastKeysRef.current.issues = null;
+          setIssues(null);
+        }
+      } else if (issuesK !== lastKeysRef.current.issues) {
+        const url = `/output/${encodeURIComponent(meta.issues.filename)}`;
+        const parsed = await fetchIssuesJson(url);
+        if (cancelled) return;
+        if (parsed) {
+          lastKeysRef.current.issues = issuesK;
+          setIssues(parsed);
+        } else {
+          console.warn("IFC issues JSON parse failed:", url);
+        }
+      }
     };
 
     tick();
@@ -90,5 +143,5 @@ export function usePollBackendIfcFiles() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [setBaseline, setCurrent]);
+  }, [setBaselineIfcFile, setIfcFile, setIssues]);
 }

@@ -141,7 +141,11 @@ def main():
         console.print("\n[green]No issues found[/] — the IFC file passes all validations.")
         sys.exit(0)
 
-    issues, merged_verbose = summarize_issues_for_agent(raw_issues)
+    import ifcopenshell
+    console.print("[dim]Loading IFC for issue grouping...[/]")
+    model = ifcopenshell.open(ifc_path)
+
+    issues, merged_verbose = summarize_issues_for_agent(raw_issues, model)
     console.print(
         f"\n[dim]Raw report rows:[/] [yellow]{len(raw_issues)}[/]  "
         f"[dim]→ agent / review groups:[/] [green]{len(issues)}[/]"

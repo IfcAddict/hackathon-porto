@@ -55,17 +55,27 @@ export class DiffService {
   async compare(
     baselineFile: File | null,
     currentFile: File | null
-  ): Promise<DiffResult> {
+  ): Promise<{ diff: DiffResult | null; currentProperties: Record<string, any> }> {
     const result: DiffResult = {
       added: [],
       deleted: [],
       modified: {},
     };
 
-    if (!baselineFile || !currentFile) return result;
+    let currentProperties: Record<string, any> = {};
+
+    if (!currentFile) return { diff: null, currentProperties };
+
+    const newData = await this.readModel(currentFile);
+    for (const [gid, val] of Object.entries(newData.elements)) {
+      currentProperties[gid] = val.properties;
+    }
+
+    if (!baselineFile) {
+      return { diff: null, currentProperties };
+    }
 
     const oldData = await this.readModel(baselineFile);
-    const newData = await this.readModel(currentFile);
 
     const oldIds = new Set(Object.keys(oldData.elements));
     const newIds = new Set(Object.keys(newData.elements));
@@ -88,24 +98,25 @@ export class DiffService {
       }
     });
 
-    return result;
+    return { diff: result, currentProperties };
   }
 
-  /**
-   * Collect express IDs for entities we diff by GlobalId.
-   * IFCPRODUCT alone misses type definitions (e.g. IfcStairType, IfcWallType), which
-   * sit under IfcTypeProduct, not IfcProduct — so PredefinedType changes were invisible.
-   */
   private collectExpressIdsForDiff(modelID: number): Set<number> {
     const ids = new Set<number>();
     const roots = [
       WebIFC.IFCPRODUCT,
       WebIFC.IFCTYPEPRODUCT,
+      WebIFC.IFCRELDEFINESBYPROPERTIES,
+      WebIFC.IFCPROPERTYSET
     ] as const;
     for (const typeCode of roots) {
-      const vec = this.ifcAPI.GetLineIDsWithType(modelID, typeCode, true);
-      const n = vec.size();
-      for (let i = 0; i < n; i++) ids.add(vec.get(i));
+      try {
+        const vec = this.ifcAPI.GetLineIDsWithType(modelID, typeCode, true);
+        const n = vec.size();
+        for (let i = 0; i < n; i++) ids.add(vec.get(i));
+      } catch (e) {
+        // ignore if type doesn't exist
+      }
     }
     return ids;
   }
@@ -127,16 +138,20 @@ export class DiffService {
 
     const expressIds = this.collectExpressIdsForDiff(modelID);
     for (const expressId of expressIds) {
-      const props = this.ifcAPI.GetLine(modelID, expressId) as Record<
-        string,
-        unknown
-      >;
-      const gid = props?.GlobalId as { value?: string } | undefined;
-      if (gid?.value) {
-        const globalId = gid.value;
-        elements[globalId] = { properties: props, expressId };
-        globalIdToExpressId.set(globalId, expressId);
-        expressIdToGlobalId.set(expressId, globalId);
+      try {
+        const props = this.ifcAPI.GetLine(modelID, expressId) as Record<
+          string,
+          unknown
+        >;
+        const gid = props?.GlobalId as { value?: string } | undefined;
+        if (gid?.value) {
+          const globalId = gid.value;
+          elements[globalId] = { properties: props, expressId };
+          globalIdToExpressId.set(globalId, expressId);
+          expressIdToGlobalId.set(expressId, globalId);
+        }
+      } catch (e) {
+        // ignore invalid lines
       }
     }
 
