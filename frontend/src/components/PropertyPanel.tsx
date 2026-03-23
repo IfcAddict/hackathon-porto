@@ -9,7 +9,7 @@ const fmt = (v: unknown) => {
       return `[ ${v.map((item) => (typeof item === 'object' && item !== null ? '{...}' : item)).join(', ')} ]`;
     }
     if ("value" in v && typeof v.value !== "undefined") {
-        return String(v.value); // web-ifc value wrappers
+      return String(v.value); // web-ifc value wrappers
     }
     return "{ ... }";
   }
@@ -25,7 +25,7 @@ export const PropertyPanel: React.FC = () => {
   const displayProps = useMemo(() => {
     if (!currentProps) return [];
     const allProps = Object.entries(currentProps).filter(([k]) => k !== "expressID" && k !== "GlobalId" && k !== "OwnerHistory");
-    
+
     // Sort modified properties first
     allProps.sort((a, b) => {
       const aMod = modifications?.attributes?.[a[0]] ? 1 : 0;
@@ -44,7 +44,7 @@ export const PropertyPanel: React.FC = () => {
         <div className="flex items-center gap-3">
           <h3 className="font-medium text-sm text-slate-200 flex items-center gap-2">
             <Info size={16} className="text-blue-400" />
-            Element Properties
+            Element Attributes
           </h3>
           <span className="text-xs font-mono text-slate-400 bg-slate-900/50 px-2 py-0.5 rounded-md border border-slate-700/50">
             {selection}
