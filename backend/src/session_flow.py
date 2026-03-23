@@ -132,10 +132,39 @@ def build_agent_session(
     )
 
 
-def finalize_session_disk(ctx: AgentSessionContext) -> tuple[str, str]:
+def finalize_session_disk(
+    ctx: AgentSessionContext, group_decisions: list[dict] | None = None
+) -> tuple[str, str]:
     """Save IFC and issues JSON; returns (ifc_path, issues_json_path)."""
     ctx.engine.save_model(ctx.ifc_output_path)
     json_path = write_issues_json(ctx.ifc_output_path, ctx.issues)
+
+    # If decisions are provided, create the final "clean" output
+    if group_decisions is not None:
+        decisions_by_idx = {d["index"]: d.get("originalStatus", d.get("status", "accepted")) for d in group_decisions}
+        
+        # Add resolution status to the final json
+        final_payload = []
+        for i, iss in enumerate(ctx.issues):
+            status = decisions_by_idx.get(i, "accepted")
+            row = dict(iss)
+            row["index"] = i
+            row["resolution"] = status
+            final_payload.append(row)
+
+        import shutil
+        from src.config import OUTPUT_DIR
+        parent_dir = os.path.dirname(OUTPUT_DIR)
+        final_dir = os.path.join(parent_dir, "final_output")
+        os.makedirs(final_dir, exist_ok=True)
+
+        final_ifc = os.path.join(final_dir, os.path.basename(ctx.ifc_output_path))
+        shutil.copy2(ctx.ifc_output_path, final_ifc)
+        
+        final_json_path = os.path.join(final_dir, os.path.basename(json_path))
+        with open(final_json_path, "w", encoding="utf-8") as f:
+            json.dump(final_payload, f, indent=2, ensure_ascii=False)
+
     return ctx.ifc_output_path, json_path
 
 

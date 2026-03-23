@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertCircle,
   Save,
+  RotateCw,
 } from "lucide-react";
 import { useAppStore, type IfcIssue } from "../store/useAppStore";
 import { useAgentSession } from "../hooks/useAgentSession";
@@ -88,31 +89,51 @@ const IssueTreeNode: React.FC<{
   const issueResolutions = useAppStore(s => s.issueResolutions);
   const setIssueResolution = useAppStore(s => s.setIssueResolution);
   const setMultipleResolutions = useAppStore(s => s.setMultipleResolutions);
-  const resolution = issueResolutions[issue.id];
 
-  const handleToggle = (status: 'accepted' | 'rejected', e: React.MouseEvent) => {
+  const descendantIds = useMemo(() => getAllDescendantIds(node), [node]);
+  
+  const stats = useMemo(() => {
+    let accepted = 0;
+    let retry = 0;
+    let rejected = 0;
+    descendantIds.forEach(id => {
+      const status = issueResolutions[id]?.status || 'accepted';
+      if (status === 'accepted') accepted++;
+      else if (status === 'retry') retry++;
+      else if (status === 'rejected') rejected++;
+    });
+    return { accepted, retry, rejected, total: descendantIds.length };
+  }, [descendantIds, issueResolutions]);
+
+  let derivedStatus: 'accepted' | 'retry' | 'rejected' | 'mixed' = 'mixed';
+  if (stats.accepted === stats.total) derivedStatus = 'accepted';
+  else if (stats.retry === stats.total) derivedStatus = 'retry';
+  else if (stats.rejected === stats.total) derivedStatus = 'rejected';
+
+  // For leaf node feedback
+  const selfResolution = issueResolutions[issue.id] || { status: 'accepted' };
+
+  const handleToggle = (status: 'accepted' | 'retry' | 'rejected', e: React.MouseEvent) => {
     e.stopPropagation();
-    const isSetting = resolution?.status !== status;
-    const newStatus = isSetting ? { status } : null;
-    
-    // Apply to this node and all descendants
-    const ids = getAllDescendantIds(node);
+    // Force this state on all descendants; no "deselect"
+    const ids = descendantIds;
     const updates: Record<number, any> = {};
     ids.forEach(id => {
-      // Keep existing feedback if we are just switching back to rejected, or clear it if it's new
       const existing = issueResolutions[id];
-      if (newStatus && newStatus.status === 'rejected' && existing?.feedback) {
-        updates[id] = { status: 'rejected', feedback: existing.feedback };
+      if (status === 'retry' && existing?.feedback) {
+        updates[id] = { status: 'retry', feedback: existing.feedback };
+      } else if (status === 'accepted') {
+        updates[id] = null; // null deletes the key, falling back to default 'accepted'
       } else {
-        updates[id] = newStatus;
+        updates[id] = { status };
       }
     });
     setMultipleResolutions(updates);
   };
 
   const handleFeedbackChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (resolution?.status === 'rejected') {
-      setIssueResolution(issue.id, { ...resolution, feedback: e.target.value });
+    if (selfResolution.status === 'retry') {
+      setIssueResolution(issue.id, { ...selfResolution, feedback: e.target.value });
     }
   };
 
@@ -153,10 +174,21 @@ const IssueTreeNode: React.FC<{
             >
               <div className="flex justify-between items-start gap-2">
                 <span className="font-mono text-violet-400 shrink-0">#{issue.id}</span>
-                {resolution?.status === 'accepted' && <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-400/10 px-1 rounded border border-emerald-500/20 shrink-0">Accepted</span>}
-                {resolution?.status === 'rejected' && <span className="text-[9px] uppercase font-bold text-red-400 bg-red-400/10 px-1 rounded border border-red-500/20 shrink-0">Rejected</span>}
+                {derivedStatus === 'mixed' ? (
+                  <span className="text-[9px] font-bold tracking-wide flex items-center gap-1 border border-slate-700 bg-slate-800/50 px-1 rounded shrink-0">
+                    <span className="text-emerald-500">{stats.accepted}</span>/
+                    <span className="text-orange-500">{stats.retry}</span>/
+                    <span className="text-red-500">{stats.rejected}</span>
+                  </span>
+                ) : (
+                  <>
+                    {derivedStatus === 'accepted' && <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-400/10 px-1 rounded border border-emerald-500/20 shrink-0">Accepted</span>}
+                    {derivedStatus === 'retry' && <span className="text-[9px] uppercase font-bold text-orange-400 bg-orange-400/10 px-1 rounded border border-orange-500/20 shrink-0">Retry</span>}
+                    {derivedStatus === 'rejected' && <span className="text-[9px] uppercase font-bold text-red-400 bg-red-400/10 px-1 rounded border border-red-500/20 shrink-0">Rejected</span>}
+                  </>
+                )}
               </div>
-              <span className={`block font-sans text-[11px] mt-0.5 leading-snug ${resolution?.status === 'rejected' ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
+              <span className={`block font-sans text-[11px] mt-0.5 leading-snug ${derivedStatus === 'retry' || derivedStatus === 'rejected' ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
                 {issueRowTitle(issue, hasChildren)}
               </span>
               <span className="block text-[10px] text-slate-500 mt-0.5">
@@ -164,29 +196,36 @@ const IssueTreeNode: React.FC<{
               </span>
             </button>
 
-            <div className={`flex flex-col gap-1 shrink-0 ${resolution ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+            <div className={`flex flex-col gap-1 shrink-0 transition-opacity`}>
               <button 
                 onClick={(e) => handleToggle('accepted', e)}
-                className={`p-1 rounded flex items-center justify-center transition-colors ${resolution?.status === 'accepted' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500 hover:text-emerald-400 hover:bg-slate-700'}`}
-                title={resolution?.status === 'accepted' ? "Unstage" : "Accept change"}
+                className={`p-1 rounded flex items-center justify-center transition-colors ${derivedStatus === 'accepted' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500 hover:text-emerald-400 hover:bg-slate-700'}`}
+                title="Accept change"
               >
                 <Check size={13} />
               </button>
               <button 
-                onClick={(e) => handleToggle('rejected', e)}
-                className={`p-1 rounded flex items-center justify-center transition-colors ${resolution?.status === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-500 hover:text-red-400 hover:bg-slate-700'}`}
-                title={resolution?.status === 'rejected' ? "Unstage" : "Reject change"}
+                onClick={(e) => handleToggle('retry', e)}
+                className={`p-1 rounded flex items-center justify-center transition-colors ${derivedStatus === 'retry' ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-800 text-slate-500 hover:text-orange-400 hover:bg-slate-700'}`}
+                title="Retry fix (send to agent)"
               >
-                <Trash2 size={13} />
+                <RotateCw size={13} />
+              </button>
+              <button 
+                onClick={(e) => handleToggle('rejected', e)}
+                className={`p-1 rounded flex items-center justify-center transition-colors ${derivedStatus === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-500 hover:text-red-400 hover:bg-slate-700'}`}
+                title="Reject issue (revert agent fix)"
+              >
+                <X size={13} />
               </button>
             </div>
           </div>
           
-          {/* Feedback input for rejected issues */}
-          {resolution?.status === 'rejected' && !hasChildren && (
+          {/* Feedback input for retry issues */}
+          {selfResolution.status === 'retry' && (
             <div className="mt-1 ml-1 mr-[26px]">
               <textarea
-                value={resolution.feedback || ''}
+                value={selfResolution.feedback || ''}
                 onChange={handleFeedbackChange}
                 placeholder="Add feedback for the agent..."
                 className="w-full bg-slate-900 border border-slate-700 rounded text-[10px] text-slate-300 p-1.5 focus:outline-none focus:border-red-500/50 resize-none"
@@ -249,9 +288,18 @@ export const IssuesSidebar: React.FC = () => {
     setSelection(null);
   };
 
-  const acceptedCount = Object.values(issueResolutions).filter(r => r.status === 'accepted').length;
+  const issuesList = issues || [];
+  const totalIssues = issuesList.length;
+  const retryCount = Object.values(issueResolutions).filter(r => r.status === 'retry').length;
   const rejectedCount = Object.values(issueResolutions).filter(r => r.status === 'rejected').length;
-  const totalStaged = acceptedCount + rejectedCount;
+  const acceptedCount = totalIssues - retryCount - rejectedCount;
+  const totalStaged = totalIssues;
+
+  // Check if at least one retry issue has feedback
+  const hasRetryFeedback = Object.values(issueResolutions).some(r => r.status === 'retry' && r.feedback && r.feedback.trim() !== '');
+
+  // We should send review if there are retry or rejected issues. If only accepted, we can finalize.
+  const needsAgentReview = retryCount > 0 || rejectedCount > 0;
 
   const agentPanel = (
     <div className="flex flex-col items-center justify-center py-2 w-full space-y-3">
@@ -310,23 +358,10 @@ export const IssuesSidebar: React.FC = () => {
           </pre>
         </details>
       )}
-
-      {canSendReview && (
-        <div className="flex flex-col gap-2 w-full">
-          <button
-            type="button"
-            onClick={finishSession}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-md text-xs font-medium border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors"
-          >
-            <Save size={14} />
-            Finish session (save, no more passes)
-          </button>
-        </div>
-      )}
     </div>
   );
 
-  if (agentPhase !== "awaiting_review") {
+  if (!issues || issues.length === 0) {
     return (
       <aside className="w-72 shrink-0 border-r border-slate-700 bg-slate-950 flex flex-col justify-center items-center p-4 min-h-0 text-slate-200">
         {agentPanel}
@@ -382,22 +417,42 @@ export const IssuesSidebar: React.FC = () => {
         <div className="p-3 border-t border-slate-800 shrink-0 bg-slate-900 flex flex-col gap-2">
           <div className="flex justify-between text-[10px] uppercase font-bold tracking-wide px-1">
             <span className="text-emerald-500">{acceptedCount} accepted</span>
-            <span className="text-red-500">{rejectedCount} rejected</span>
+            {retryCount > 0 && <span className="text-orange-500">{retryCount} retry</span>}
+            {rejectedCount > 0 && <span className="text-red-500">{rejectedCount} rejected</span>}
           </div>
-          <button
-            type="button"
-            disabled={!canSendReview}
-            title={
-              canSendReview
-                ? "Send staged accept/reject to the agent for another pass"
-                : "Wait until the agent is ready for review (see status above)"
-            }
-            onClick={applyStagedResolutions}
-            className="w-full py-2 rounded text-xs font-bold transition-all bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-white shadow-lg shadow-emerald-500/20 flex justify-center items-center gap-2"
-          >
-            <Check size={14} />
-            Send review to agent
-          </button>
+          {needsAgentReview ? (
+            <button
+              type="button"
+              disabled={agentPhase !== "awaiting_review" || (retryCount > 0 && !hasRetryFeedback)}
+              title={
+                agentPhase !== "awaiting_review"
+                  ? "Wait until the agent is ready for review (see status above)"
+                  : (retryCount > 0 && !hasRetryFeedback)
+                  ? "Please provide feedback for at least one retry issue before sending"
+                  : "Send staged accept/retry/reject to the agent for another pass"
+              }
+              onClick={applyStagedResolutions}
+              className="w-full py-2 rounded text-xs font-bold transition-all bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-white shadow-lg shadow-emerald-500/20 flex justify-center items-center gap-2"
+            >
+              <Check size={14} />
+              Send review to agent
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={agentPhase !== "awaiting_review"}
+              title={
+                agentPhase === "awaiting_review"
+                  ? "Finish session and save the final accepted model"
+                  : "Wait until the agent is ready for review (see status above)"
+              }
+              onClick={finishSession}
+              className="w-full py-2 rounded text-xs font-bold transition-all bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:pointer-events-none text-white shadow-lg shadow-violet-500/20 flex justify-center items-center gap-2"
+            >
+              <Save size={14} />
+              Approve and Finish
+            </button>
+          )}
         </div>
       )}
 

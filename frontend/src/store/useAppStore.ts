@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export interface IssueResolution {
-  status: "accepted" | "rejected";
+  status: "accepted" | "retry" | "rejected";
   feedback?: string;
 }
 

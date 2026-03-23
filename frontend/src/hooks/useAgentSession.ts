@@ -18,15 +18,20 @@ function buildReviewPayload(
 ): { group_decisions: { index: number; status: "accept" | "reject" }[]; instructions: string } {
   const group_decisions = issues.map((iss) => {
     const r = resolutions[iss.id];
-    const status: "accept" | "reject" = r?.status === "rejected" ? "reject" : "accept";
+    const s = r?.status || 'accepted';
+    // If retry or rejected, we pass it as 'reject' to the backend.
+    const status: "accept" | "reject" = (s === "retry" || s === "rejected") ? "reject" : "accept";
     return { index: iss.id, status };
   });
 
   const parts: string[] = [];
   for (const iss of issues) {
     const r = resolutions[iss.id];
-    if (r?.status === "rejected" && r.feedback?.trim()) {
+    const s = r?.status || 'accepted';
+    if (s === "retry" && r?.feedback?.trim()) {
       parts.push(`[Issue #${iss.id} — ${iss.title}]: ${r.feedback.trim()}`);
+    } else if (s === "rejected") {
+      parts.push(`[Issue #${iss.id} — ${iss.title}]: The reviewer has decided to reject this issue. Please REVERT any modifications you made to the IFC model for this specific issue, and ignore it from now on.`);
     }
   }
 
@@ -34,7 +39,7 @@ function buildReviewPayload(
   const instructions =
     parts.length > 0
       ? parts.join("\n\n")
-      : "Reviewer staged accept/reject as indicated in group_decisions; apply feedback and continue.";
+      : "Reviewer staged accept/retry/reject as indicated in group_decisions; apply feedback and continue.";
 
   return { group_decisions, instructions };
 }
@@ -216,8 +221,18 @@ export function useAgentSession() {
       setPhase("error");
       return;
     }
+    const { issues, issueResolutions } = useAppStore.getState();
+    const group_decisions = issues?.map((iss) => {
+      const r = issueResolutions[iss.id];
+      const s = r?.status || 'accepted';
+      // When finishing, we convey the exact final status (accept/retry/reject)
+      // We map retry/reject -> reject for the server logic that filters accepted issues
+      const status: "accept" | "reject" = (s === "retry" || s === "rejected") ? "reject" : "accept";
+      return { index: iss.id, status, originalStatus: s };
+    }) || [];
+
     setPhase("finalizing");
-    ws.send(JSON.stringify({ type: WS.REVIEW, instructions: "" }));
+    ws.send(JSON.stringify({ type: WS.REVIEW, group_decisions, instructions: "" }));
   }, []);
 
   const applyStagedResolutions = useCallback(() => {

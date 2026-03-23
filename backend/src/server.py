@@ -149,8 +149,8 @@ def _blocking_prepare_session() -> AgentSessionContext:
     return ctx
 
 
-def _finalize(ctx: AgentSessionContext) -> tuple[str, str]:
-    return finalize_session_disk(ctx)
+def _finalize(ctx: AgentSessionContext, group_decisions: list[dict] | None = None) -> tuple[str, str]:
+    return finalize_session_disk(ctx, group_decisions)
 
 
 @app.websocket("/ws/session")
@@ -261,8 +261,9 @@ async def session_socket(websocket: WebSocket):
 
         instructions = (data.get("instructions") or "").strip()
         if not instructions:
+            group_decisions = data.get("group_decisions")
             try:
-                ifc_path, json_path = await loop.run_in_executor(None, _finalize, ctx)
+                ifc_path, json_path = await loop.run_in_executor(None, _finalize, ctx, group_decisions)
             except Exception:
                 await websocket.send_json(
                     {
