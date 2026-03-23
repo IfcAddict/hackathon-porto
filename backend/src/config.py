@@ -5,6 +5,15 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Only `.env` at the repo root is loaded — not `.env.template` (that file is documentation only).
 load_dotenv(os.path.join(_ROOT, ".env"))
 
+# OpenAI (https://platform.openai.com/) — when set, the agent uses ChatOpenAI instead of Groq.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+_DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or _DEFAULT_OPENAI_MODEL).strip()
+# Summarizes tool rounds when the main request hits context / payload limits.
+OPENAI_COMPACT_MODEL = (os.getenv("OPENAI_COMPACT_MODEL") or OPENAI_MODEL).strip()
+# Responses API reasoning effort (e.g. none, low, medium, high, xhigh) — see OpenAI reasoning docs.
+OPENAI_REASONING_EFFORT = (os.getenv("OPENAI_REASONING_EFFORT") or "xhigh").strip()
+
 # Groq (https://console.groq.com/docs)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()

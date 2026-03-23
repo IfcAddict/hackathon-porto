@@ -9,13 +9,18 @@ import re
 from typing import Any
 
 from groq import APIStatusError
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 
 from src.config import (
     GROQ_API_KEY,
     GROQ_COMPACT_MODEL,
     GROQ_COMPACT_PARSE_RETRIES,
+    OPENAI_API_KEY,
+    OPENAI_COMPACT_MODEL,
+    OPENAI_REASONING_EFFORT,
 )
 
 log = logging.getLogger("ifc_agent.context_compact")
@@ -81,8 +86,12 @@ def _flatten_exceptions(exc: BaseException | None) -> list[BaseException]:
 
 
 def is_context_payload_too_large(exc: BaseException) -> bool:
-    """True for Groq HTTP 413 / request-too-large style TPM errors."""
+    """True for provider HTTP 413 / context-length / request-too-large style errors."""
     full_text = str(exc).lower()
+    if "context_length_exceeded" in full_text:
+        return True
+    if "maximum context length" in full_text:
+        return True
     if "error code: 413" in full_text or (
         "413" in full_text and "request too large" in full_text and "token" in full_text
     ):
@@ -91,7 +100,15 @@ def is_context_payload_too_large(exc: BaseException) -> bool:
         if isinstance(e, APIStatusError) and getattr(e, "status_code", None) == 413:
             return True
         msg = str(e).lower()
+        if "context_length_exceeded" in msg or "maximum context length" in msg:
+            return True
         if "request too large" in msg and "token" in msg:
+            return True
+        code = getattr(e, "code", None)
+        if code == "context_length_exceeded":
+            return True
+        body = getattr(e, "body", None)
+        if isinstance(body, dict) and str(body.get("code", "")).lower() == "context_length_exceeded":
             return True
     return False
 
@@ -134,7 +151,7 @@ def _fallback_round_summary(preamble: str, items: list[tuple[str, str, str]]) ->
 
 
 def _summarize_tool_round(
-    llm: ChatGroq,
+    llm: BaseChatModel,
     preamble: str,
     items: list[tuple[str, str, str]],
 ) -> str:
@@ -203,8 +220,15 @@ def compact_thread_tool_results(messages: list[BaseMessage]) -> list[BaseMessage
     if not thread_has_compactable_tool_rounds(messages):
         return list(messages)
 
-    llm: ChatGroq | None = None
-    if GROQ_API_KEY:
+    llm: BaseChatModel | None = None
+    if OPENAI_API_KEY:
+        llm = ChatOpenAI(
+            model=OPENAI_COMPACT_MODEL,
+            api_key=OPENAI_API_KEY,
+            max_retries=2,
+            reasoning={"effort": OPENAI_REASONING_EFFORT},
+        )
+    elif GROQ_API_KEY:
         llm = ChatGroq(
             model=GROQ_COMPACT_MODEL,
             api_key=GROQ_API_KEY,
@@ -212,7 +236,7 @@ def compact_thread_tool_results(messages: list[BaseMessage]) -> list[BaseMessage
             max_retries=2,
         )
     else:
-        log.warning("GROQ_API_KEY missing; using hard truncation for tool rounds.")
+        log.warning("No OPENAI_API_KEY or GROQ_API_KEY; using hard truncation for tool rounds.")
 
     out: list[BaseMessage] = []
     i = 0

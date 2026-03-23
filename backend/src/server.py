@@ -14,6 +14,7 @@ import shutil
 
 from src.config import (
     GROQ_API_KEY,
+    OPENAI_API_KEY,
     IFC_AGENT_SAMPLE_MODE,
     IFC_AGENT_SAMPLE_OUTPUT_IFC_BASENAME,
     IFC_AGENT_WS_HOST,
@@ -53,16 +54,17 @@ app.add_middleware(
 
 @app.post("/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
-    # Clear existing files in rsc directory
-    for filename in os.listdir(RSC_DIR):
-        file_path = os.path.join(RSC_DIR, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as e:
-            pass
+    # Clear existing files in rsc directory (skipped in sample mode — preserve rsc/ and rely on output/)
+    if not IFC_AGENT_SAMPLE_MODE:
+        for filename in os.listdir(RSC_DIR):
+            file_path = os.path.join(RSC_DIR, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception:
+                pass
 
     saved_files = []
     for file in files:
@@ -120,10 +122,10 @@ def _blocking_prepare_sample_session() -> AgentSessionContext:
 def _blocking_prepare_session() -> AgentSessionContext:
     if IFC_AGENT_SAMPLE_MODE:
         return _blocking_prepare_sample_session()
-    if not GROQ_API_KEY:
+    if not GROQ_API_KEY and not OPENAI_API_KEY:
         raise SessionSetupError(
             "missing_api_key",
-            "GROQ_API_KEY is not set. Copy .env.template to .env and set your key.",
+            "Neither OPENAI_API_KEY nor GROQ_API_KEY is set. Copy .env.template to .env and set one of them.",
         )
     files = scan_rsc_dir()
     if not files["ifc"]:

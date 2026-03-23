@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from src.agent import build_agent, run_agent
+from src.config import IFC_AGENT_SAMPLE_MODE
 from src.engine import ScriptEngine
 from src.ifc_utils import copy_ifc_to_output, parse_bcf, run_ifctester
 from src.tools import init_tools
@@ -136,6 +137,9 @@ def finalize_session_disk(
     ctx: AgentSessionContext, group_decisions: list[dict] | None = None
 ) -> tuple[str, str]:
     """Save IFC and issues JSON; returns (ifc_path, issues_json_path)."""
+    if IFC_AGENT_SAMPLE_MODE:
+        return ctx.ifc_output_path, issues_json_path(ctx.ifc_output_path)
+
     ctx.engine.save_model(ctx.ifc_output_path)
     json_path = write_issues_json(ctx.ifc_output_path, ctx.issues)
 

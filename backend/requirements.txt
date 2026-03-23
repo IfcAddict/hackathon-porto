@@ -4,6 +4,7 @@ langgraph
 langchain
 langchain-core
 langchain-groq
+langchain-openai
 python-dotenv
 rich>=13.7.0
 fastapi

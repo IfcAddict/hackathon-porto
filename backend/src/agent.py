@@ -12,6 +12,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from rich.panel import Panel
 from rich.syntax import Syntax
 
@@ -21,6 +22,9 @@ from src.config import (
     GROQ_API_KEY,
     GROQ_CONTEXT_COMPACT_MAX_PASSES,
     GROQ_MODEL,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    OPENAI_REASONING_EFFORT,
 )
 from src.context_compact import (
     compact_thread_tool_results,
@@ -145,16 +149,23 @@ def _log_message(msg: BaseMessage) -> None:
 
 def build_agent():
     """Build and return a LangGraph ReAct agent wired to the IFC tools."""
-    if not GROQ_API_KEY:
-        raise RuntimeError(
-            "GROQ_API_KEY is not set. Copy .env.template to .env and set your key."
+    if OPENAI_API_KEY:
+        llm = ChatOpenAI(
+            model=OPENAI_MODEL,
+            api_key=OPENAI_API_KEY,
+            max_retries=6,
+            reasoning={"effort": OPENAI_REASONING_EFFORT},
         )
-
-    llm = ChatGroq(
-        model=GROQ_MODEL,
-        api_key=GROQ_API_KEY,
-        max_retries=6,
-    )
+    elif GROQ_API_KEY:
+        llm = ChatGroq(
+            model=GROQ_MODEL,
+            api_key=GROQ_API_KEY,
+            max_retries=6,
+        )
+    else:
+        raise RuntimeError(
+            "Neither OPENAI_API_KEY nor GROQ_API_KEY is set. Copy .env.template to .env."
+        )
 
     tools = get_tools()
 
@@ -181,6 +192,7 @@ def run_agent(agent, user_message: str) -> list:
     logger.info("Starting agent run (user message: %d chars)", len(user_message))
     inputs: dict = {"messages": [("user", user_message)]}
     compact_pass = 0
+    provider_label = "OpenAI" if OPENAI_API_KEY else "Groq"
 
     while True:
         attempt = 0
@@ -211,20 +223,21 @@ def run_agent(agent, user_message: str) -> list:
                 ):
                     if not thread_has_compactable_tool_rounds(last_messages):
                         raise RuntimeError(
-                            "Groq rejected the request as too large, but the thread has no "
+                            f"{provider_label} rejected the request as too large, but the thread has no "
                             "assistant tool rounds left to compact. Shorten the initial prompt, "
-                            "trim long assistant messages, or raise TPM limits."
+                            "trim long assistant messages, or raise context/token limits."
                         ) from exc
                     compact_pass += 1
                     logger.warning(
-                        "Groq request too large (TPM/payload); compacting tool rounds "
+                        "%s request too large (context/payload); compacting tool rounds "
                         "(pass %d/%d, %d messages).",
+                        provider_label,
                         compact_pass,
                         GROQ_CONTEXT_COMPACT_MAX_PASSES,
                         len(last_messages),
                     )
                     console.print(
-                        f"[yellow]Context too large for Groq — collapsing tool rounds into summaries "
+                        f"[yellow]Context too large for {provider_label} — collapsing tool rounds into summaries "
                         f"({compact_pass}/{GROQ_CONTEXT_COMPACT_MAX_PASSES}), then continuing…[/]"
                     )
                     inputs = {"messages": compact_thread_tool_results(list(last_messages))}
@@ -233,19 +246,22 @@ def run_agent(agent, user_message: str) -> list:
                 if is_context_payload_too_large(exc):
                     if compact_pass >= GROQ_CONTEXT_COMPACT_MAX_PASSES:
                         logger.error(
-                            "Groq 413 (request too large): context compaction already ran %d/%d pass(es); "
+                            "%s: request too large; context compaction already ran %d/%d pass(es); "
                             "increase GROQ_CONTEXT_COMPACT_MAX_PASSES or shrink tool outputs.",
+                            provider_label,
                             compact_pass,
                             GROQ_CONTEXT_COMPACT_MAX_PASSES,
                         )
                     elif not last_messages:
                         logger.error(
-                            "Groq 413 (request too large): graph state had no messages; cannot compact."
+                            "%s: request too large; graph state had no messages; cannot compact.",
+                            provider_label,
                         )
                     elif not thread_has_compactable_tool_rounds(last_messages):
                         logger.error(
-                            "Groq 413 (request too large): no tool rounds left to compact "
-                            "(no tool_calls / ToolMessage pairs)."
+                            "%s: request too large; no tool rounds left to compact "
+                            "(no tool_calls / ToolMessage pairs).",
+                            provider_label,
                         )
 
                 resp = find_429_response(exc)
@@ -255,7 +271,7 @@ def run_agent(agent, user_message: str) -> list:
                     raise GroqDailyQuotaExceeded(format_daily_quota_message(resp)) from exc
                 if attempt >= GROQ_429_MAX_RETRIES:
                     raise RuntimeError(
-                        f"Groq rate limit (HTTP 429) persisted after {GROQ_429_MAX_RETRIES} "
+                        f"{provider_label} rate limit (HTTP 429) persisted after {GROQ_429_MAX_RETRIES} "
                         "full run retries. Increase GROQ_429_MAX_RETRIES or wait."
                     ) from exc
                 wait_sec = wait_seconds_before_retry(
@@ -263,14 +279,15 @@ def run_agent(agent, user_message: str) -> list:
                     max_sleep=GROQ_429_MAX_SLEEP_SEC,
                 )
                 logger.warning(
-                    "Groq rate limited (HTTP 429); waiting %.1f s then restarting agent run "
+                    "%s rate limited (HTTP 429); waiting %.1f s then restarting agent run "
                     "(attempt %d/%d).",
+                    provider_label,
                     wait_sec,
                     attempt,
                     GROQ_429_MAX_RETRIES,
                 )
                 console.print(
-                    f"[yellow]Groq rate limit — waiting {wait_sec:.0f} s, then retrying this run "
+                    f"[yellow]{provider_label} rate limit — waiting {wait_sec:.0f} s, then retrying this run "
                     f"({attempt}/{GROQ_429_MAX_RETRIES})…[/]"
                 )
                 time.sleep(wait_sec)

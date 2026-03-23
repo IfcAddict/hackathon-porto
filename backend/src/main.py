@@ -5,7 +5,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.rule import Rule
 
-from src.config import GROQ_API_KEY, RSC_DIR
+from src.config import GROQ_API_KEY, OPENAI_API_KEY, RSC_DIR
 from src.logging_config import configure_logging, console
 from src.ifc_utils import scan_rsc_dir
 from src.groq_rate_limit import GroqDailyQuotaExceeded
@@ -93,9 +93,9 @@ def review_loop(
 def main():
     configure_logging()
     console.print(Rule("[bold bright_cyan]IFC Fix Agent[/]", style="cyan"))
-    if not GROQ_API_KEY:
+    if not GROQ_API_KEY and not OPENAI_API_KEY:
         console.print(
-            "\n[red]Missing GROQ_API_KEY.[/] Copy .env.template to .env and set your API key."
+            "\n[red]Missing API key.[/] Set OPENAI_API_KEY or GROQ_API_KEY in .env (see .env.template)."
         )
         sys.exit(1)
     print_separator()
