@@ -1,5 +1,3 @@
-import type { DiffResult } from "../store/useAppStore";
-
 /** Return true to abandon the rest of a visual update (superseded by a newer one). */
 export type VisualStaleCheck = () => boolean;
 
@@ -13,20 +11,16 @@ export interface ViewerAdapter {
     isStale?: VisualStaleCheck
   ): Promise<void>;
   clearHighlights(isStale?: VisualStaleCheck): Promise<void>;
-  /** Fragment-level dim via highlight; null clears. Does not clear Highlighter diff styles. */
+  /** Dim non-focused geometry; null shows full model. */
   setFragmentIsolate(
     focusGlobalIds: string[] | null,
     isStale?: VisualStaleCheck
   ): Promise<void>;
-  /** Clear + isolate layer + re-apply diff overlay colors (full refresh). */
-  applyDiffAndIsolate(
-    diff: DiffResult | null,
+  /** After load or focus change: clear selection highlights and apply isolate layer. */
+  refreshIsolate(
     focusGlobalIds: string[] | null,
-    isStale?: VisualStaleCheck
-  ): Promise<void>;
-  /** Re-paint Highlighter diff colors only (no clear). Use after setFragmentIsolate if needed. */
-  reapplyDiffHighlighterLayer(
-    diff: DiffResult,
+    colorHex?: string,
+    isolateRest?: boolean,
     isStale?: VisualStaleCheck
   ): Promise<void>;
   onElementSelect(cb: (globalId: string | null) => void): void;

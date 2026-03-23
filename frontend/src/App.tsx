@@ -49,11 +49,12 @@ function App() {
 
       <div className="flex-1 flex w-full min-h-0 relative pt-16 border-t border-slate-700">
         <IssuesSidebar />
-        <div className="flex-1 relative min-w-0 min-h-0">
-          <ViewerContainer modelFile={ifcFile} />
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
+          <div className="flex-1 relative min-h-0">
+            <ViewerContainer modelFile={ifcFile} />
+          </div>
+          <PropertyPanel />
         </div>
-
-        <PropertyPanel />
       </div>
     </div>
   );
